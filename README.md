@@ -134,8 +134,10 @@ Module layout (`src/ticket_agent/`):
 - `llm/`: talking to the model behind a provider-neutral interface.
   `conversation.py` defines the history messages and tool declarations, `events.py` the
   streamed events (text delta, tool call request, turn finished), `provider.py` the
-  `ModelProvider` protocol, `gemini.py` the one implementation and the only module
-  importing `google.genai`, `factory.py` builds it from the settings.
+  `ModelProvider` protocol, the `gemini/` sub-package the one implementation and the
+  only code importing `google.genai` (`provider.py`, `conversion.py` for history and
+  config, `streaming.py` for chunk parsing, `signatures.py` for thought signatures),
+  `factory.py` builds it from the settings.
 - `constants/system_prompt.py`: the system prompt as commented paragraphs. It is not a
   security boundary; every rule that matters is enforced in code.
 - `tenants/repository.py`: tenant lookups.
