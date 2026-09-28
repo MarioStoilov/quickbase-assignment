@@ -30,12 +30,12 @@ seed:
 # Print the tenants and tickets currently in the database (add ARGS=--full for whole
 # descriptions).
 db-dump:
-	uv run python -m ticket_agent.db.tools.dump $(ARGS)
+	uv run python -m ticket_agent.utils.db.dump $(ARGS)
 
 # Send one message to the configured Gemini model and stream the reply, e.g.
 # make llm-probe ARGS="what can you do"
 llm-probe:
-	uv run python -m ticket_agent.llm.probe $(ARGS)
+	uv run python -m ticket_agent.utils.llm.probe $(ARGS)
 
 # Start the API server on the configured host and port.
 run:

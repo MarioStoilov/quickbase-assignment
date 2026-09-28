@@ -1,4 +1,4 @@
-"""Print the current tenants and tickets: `python -m ticket_agent.db.tools.dump [--full]`.
+"""Print the current tenants and tickets: `python -m ticket_agent.utils.db.dump [--full]`.
 
 A convenience for checking what `init`, `seed` or a chat session did to the database.
 Descriptions are shortened unless `--full` is given, because the injection payloads make
@@ -81,7 +81,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         The parser.
     """
     parser = argparse.ArgumentParser(
-        prog="python -m ticket_agent.db.tools.dump",
+        prog="python -m ticket_agent.utils.db.dump",
         description="Print the tenants and tickets in the configured database.",
     )
     parser.add_argument(

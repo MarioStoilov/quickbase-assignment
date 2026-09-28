@@ -1,5 +1,5 @@
 """Send one message to the configured model and stream the reply to the terminal:
-`python -m ticket_agent.llm.probe <words of the message>`.
+`python -m ticket_agent.utils.llm.probe <words of the message>`.
 
 A developer check that the key, the model id and the adapter work, independent of the
 chat endpoint. The system prompt is the real one; no tools are declared.
@@ -46,7 +46,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         The parser; `words` holds the message split by the shell.
     """
     parser = argparse.ArgumentParser(
-        prog="python -m ticket_agent.llm.probe",
+        prog="python -m ticket_agent.utils.llm.probe",
         description="Send one message to the configured Gemini model and stream the reply.",
     )
     parser.add_argument("words", nargs="+", help="the message to send")
@@ -65,6 +65,9 @@ def main() -> None:
         provider = build_model_provider(settings)
         asyncio.run(stream_reply(provider, message_text))
     except (ModelNotConfigured, ModelProviderError) as error:
+        # A failure inside the stream arrives after partial text without a newline;
+        # end that line so the error does not run into the answer.
+        print(flush=True)
         print(f"error: {error}", file=sys.stderr)
         sys.exit(1)
 

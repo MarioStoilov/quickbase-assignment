@@ -17,8 +17,8 @@ from ticket_agent.constants.cli import EXIT_CODE_REFUSED
 from ticket_agent.db.engine import create_database_engine, create_session_factory
 from ticket_agent.db.models import Tenant, Ticket
 from ticket_agent.db.schema import create_schema, drop_schema, schema_exists
-from ticket_agent.db.tools.seed_data import SEED_TENANTS, SEED_TICKETS
 from ticket_agent.settings import Settings, load_settings
+from ticket_agent.utils.db.seed_data import SEED_TENANTS, SEED_TICKETS
 
 
 def fail(message: str) -> NoReturn:
