@@ -45,7 +45,11 @@ make reset-db                                   # drop schema, create it again, 
 make seed                                       # seed an existing empty schema
 make db-dump                                    # print tenants and tickets (ARGS=--full for whole descriptions)
 make run                                        # start the API server
-curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets   # inspect one tenant's tickets
+
+# inspect one tenant's tickets
+curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets
+# for a more readable output (requires jq)
+curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets | jq
 ```
 
 ## Authentication
