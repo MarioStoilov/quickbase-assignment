@@ -7,9 +7,11 @@ reads `os.environ`. Variables carry the `TICKET_AGENT_` prefix and may also be p
 
 from pathlib import Path
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from ticket_agent.constants.environment import ENVIRONMENT_FILE_NAME, ENVIRONMENT_PREFIX
+from ticket_agent.constants.llm import DEFAULT_GEMINI_MODEL_ID
 
 
 class Settings(BaseSettings):
@@ -31,6 +33,15 @@ class Settings(BaseSettings):
 
     # TCP port the API server listens on. Default: 8000.
     port: int = 8000
+
+    # Google AI Studio key used to call Gemini. Read under its plain name, GEMINI_API_KEY,
+    # without the prefix, because that is the name the SDK and Google's docs use. Held as
+    # a secret so it never appears in logs or reprs. Default: unset, which makes every
+    # model call fail with a message naming this variable.
+    gemini_api_key: SecretStr | None = Field(default=None, validation_alias="GEMINI_API_KEY")
+
+    # Gemini model id every turn is sent to. Default: the pinned id in constants.llm.
+    gemini_model_id: str = DEFAULT_GEMINI_MODEL_ID
 
     @property
     def database_url(self) -> str:
