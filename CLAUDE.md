@@ -27,14 +27,20 @@ Therefore:
   push only when the user says "push". A confirmed decision or a finished step is not an
   instruction to commit.
 - Commit messages carry no `Co-Authored-By` or other trailer lines. Subject + body only.
-- Subject: imperative, capitalised, no trailing period, no type prefix such as `feat:`;
-  names the user-visible outcome (`Add the approval modal and block mutations behind it`,
-  `Scope ticket search to the caller's tenant at the tool level`). One subject can name
-  two related outcomes joined with "and".
-- Body: prose paragraphs, wrapped at about 72 columns, that say what changed and why,
-  which decisions were taken and what was deliberately left out. When a change was
-  verified by running it, the last paragraph states what was run and what was observed
-  (`Verified locally: ...`).
+- Structure, exactly:
+
+  ```
+  add|fix|remove: <brief description, 10-20 words at most>
+
+  <one paragraph, 100-150 words at most, describing the change>
+  ```
+
+- Subject: one of the three prefixes, then a lowercase imperative description with no
+  trailing period (`add: constants package holding every module-level constant`,
+  `fix: reject a foreign ticket before an approval is created`).
+- Body: a single paragraph, wrapped at about 72 columns, saying what changed and why
+  and naming a decision only when it is not obvious from the diff. A sentence on how it
+  was verified may close the paragraph. No lists, no further paragraphs.
 - Never rewrite history that has been pushed.
 
 ## No placeholder code
@@ -121,6 +127,12 @@ standards in the same change.
   the chosen stack.
 - Configuration values come from one settings module only. A new setting is added in the
   same change as the code that reads it, with its comment.
+- **Every module-level constant lives in the `constants` package** (`src/ticket_agent/
+  constants/`), grouped by topic with one module each (`auth.py`, `tickets.py`, ...),
+  each constant with its comment. Code modules import from there and define no
+  constants of their own: no limits, header names, allowed values, messages, exit codes
+  or command hints inline. Not constants: routers, type aliases, the version string,
+  and data tables such as the seed rows, which stay with the module that owns them.
 - No placeholder code, no unused dependencies (see "No placeholder code" above).
 
 ### Reference shape

@@ -1,0 +1,200 @@
+"""Tenant-scoped access to the tickets table.
+
+Every public method takes the caller's `tenant_id` as a required argument and puts it in
+the WHERE clause. There is no method that reads or writes a ticket without a tenant, so
+a cross-tenant access would have to be a new method added here, not a missing argument
+somewhere else. A ticket of another tenant is reported exactly like a missing one.
+"""
+
+from collections.abc import Mapping
+
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
+from ticket_agent.constants.tickets import (
+    ALLOWED_FIELD_VALUES,
+    MUTABLE_TICKET_FIELDS,
+    SEARCH_RESULT_LIMIT,
+)
+from ticket_agent.db.models import Ticket
+
+
+class TicketNotFound(Exception):
+    """No ticket with the given id exists within the caller's tenant.
+
+    Raised identically for a ticket that does not exist and for one that belongs to
+    another tenant, so the error cannot be used to probe other tenants' ids.
+    """
+
+    def __init__(self, ticket_id: int) -> None:
+        """Record the id that was requested."""
+        super().__init__(f"ticket {ticket_id} not found")
+        self.ticket_id = ticket_id
+
+
+class InvalidTicketFields(Exception):
+    """An update names a field that cannot be changed or gives it a value outside its set."""
+
+
+class TicketRepository:
+    """Tenant-scoped queries and changes over the tickets table for one session.
+
+    Write methods commit before returning, so a returned ticket reflects the database.
+    """
+
+    def __init__(self, session: Session) -> None:
+        """Bind the repository to `session`; the caller owns the session's lifetime."""
+        self._session = session
+
+    def list_for_tenant(self, tenant_id: str) -> list[Ticket]:
+        """Return every ticket of `tenant_id`, oldest first.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+
+        Returns:
+            The tenant's tickets; empty when it has none.
+        """
+        statement = select(Ticket).where(Ticket.tenant_id == tenant_id).order_by(Ticket.id)
+        tickets = list(self._session.scalars(statement))
+
+        return tickets
+
+    def search(self, tenant_id: str, query: str) -> list[Ticket]:
+        """Return the tickets of `tenant_id` whose title or description contains `query`.
+
+        Matching is case-insensitive substring matching. An empty or whitespace-only
+        query matches every ticket of the tenant. At most `SEARCH_RESULT_LIMIT` rows
+        are returned, oldest first.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            query: free text, possibly written by the model.
+
+        Returns:
+            The matching tickets; empty when nothing matches.
+        """
+        normalised_query = query.strip()
+        pattern = f"%{normalised_query}%"
+        matches_text = or_(Ticket.title.ilike(pattern), Ticket.description.ilike(pattern))
+
+        statement = (
+            select(Ticket)
+            .where(Ticket.tenant_id == tenant_id)
+            .where(matches_text)
+            .order_by(Ticket.id)
+            .limit(SEARCH_RESULT_LIMIT)
+        )
+        tickets = list(self._session.scalars(statement))
+
+        return tickets
+
+    def get(self, tenant_id: str, ticket_id: int) -> Ticket:
+        """Return the ticket `ticket_id` if it belongs to `tenant_id`.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            ticket_id: the id to look up, possibly supplied by the model.
+
+        Returns:
+            The ticket.
+
+        Raises:
+            TicketNotFound: the id does not exist or belongs to another tenant.
+        """
+        statement = (
+            select(Ticket).where(Ticket.tenant_id == tenant_id).where(Ticket.id == ticket_id)
+        )
+        ticket = self._session.scalars(statement).first()
+        is_visible_to_tenant = ticket is not None
+
+        if not is_visible_to_tenant:
+            raise TicketNotFound(ticket_id)
+
+        return ticket
+
+    def update(self, tenant_id: str, ticket_id: int, fields: Mapping[str, str]) -> Ticket:
+        """Change the given fields of the ticket `ticket_id` within `tenant_id`.
+
+        The fields are validated before the ticket is looked up, so an invalid request
+        leaves no trace; the tenant check then happens in `get`. `updated_at` is bumped
+        by the model's `onupdate`. The change is committed before returning.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            ticket_id: the id to change, possibly supplied by the model.
+            fields: column name to new value; must be non-empty.
+
+        Returns:
+            The ticket after the change.
+
+        Raises:
+            InvalidTicketFields: `fields` is empty, names an immutable or unknown column,
+                or gives `status` or `priority` a value outside its allowed set.
+            TicketNotFound: the id does not exist or belongs to another tenant.
+        """
+        _validate_update_fields(fields)
+
+        ticket = self.get(tenant_id, ticket_id)
+
+        for field_name, new_value in fields.items():
+            setattr(ticket, field_name, new_value)
+
+        self._session.commit()
+
+        return ticket
+
+    def delete(self, tenant_id: str, ticket_id: int) -> Ticket:
+        """Delete the ticket `ticket_id` within `tenant_id` and return it as it was.
+
+        The change is committed before returning. The returned object is detached and
+        keeps the values the ticket had, for reporting.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            ticket_id: the id to delete, possibly supplied by the model.
+
+        Returns:
+            The deleted ticket's last state.
+
+        Raises:
+            TicketNotFound: the id does not exist or belongs to another tenant.
+        """
+        ticket = self.get(tenant_id, ticket_id)
+
+        self._session.delete(ticket)
+        self._session.commit()
+
+        return ticket
+
+
+def _validate_update_fields(fields: Mapping[str, str]) -> None:
+    """Reject an update that touches a fixed column or uses a value outside its set.
+
+    Args:
+        fields: column name to new value, as supplied by the caller.
+
+    Raises:
+        InvalidTicketFields: `fields` is empty, a name is not in `MUTABLE_TICKET_FIELDS`,
+            or a constrained column gets a value outside `ALLOWED_FIELD_VALUES`.
+    """
+    is_empty = len(fields) == 0
+
+    if is_empty:
+        raise InvalidTicketFields("no fields to update")
+
+    for field_name, new_value in fields.items():
+        is_mutable = field_name in MUTABLE_TICKET_FIELDS
+        if not is_mutable:
+            allowed_names = ", ".join(sorted(MUTABLE_TICKET_FIELDS))
+            raise InvalidTicketFields(
+                f"field '{field_name}' cannot be changed; allowed: {allowed_names}"
+            )
+
+        allowed_values = ALLOWED_FIELD_VALUES.get(field_name)
+        is_constrained = allowed_values is not None
+        if is_constrained and new_value not in allowed_values:
+            allowed_list = ", ".join(allowed_values)
+            raise InvalidTicketFields(
+                f"'{new_value}' is not a valid {field_name}; allowed: {allowed_list}"
+            )
