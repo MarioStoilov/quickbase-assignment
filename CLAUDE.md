@@ -121,6 +121,12 @@ standards in the same change.
   the chosen stack.
 - Configuration values come from one settings module only. A new setting is added in the
   same change as the code that reads it, with its comment.
+- **Every module-level constant lives in the `constants` package** (`src/ticket_agent/
+  constants/`), grouped by topic with one module each (`auth.py`, `tickets.py`, ...),
+  each constant with its comment. Code modules import from there and define no
+  constants of their own: no limits, header names, allowed values, messages, exit codes
+  or command hints inline. Not constants: routers, type aliases, the version string,
+  and data tables such as the seed rows, which stay with the module that owns them.
 - No placeholder code, no unused dependencies (see "No placeholder code" above).
 
 ### Reference shape

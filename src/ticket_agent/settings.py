@@ -9,12 +9,7 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Prefix every environment variable of this application carries, so that unrelated
-# variables of the same name (HOST, PORT) do not leak in.
-ENVIRONMENT_PREFIX = "TICKET_AGENT_"
-
-# Name of the optional file with variable assignments, read from the working directory.
-ENVIRONMENT_FILE_NAME = ".env"
+from ticket_agent.constants.environment import ENVIRONMENT_FILE_NAME, ENVIRONMENT_PREFIX
 
 
 class Settings(BaseSettings):

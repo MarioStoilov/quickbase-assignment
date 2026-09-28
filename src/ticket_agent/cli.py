@@ -12,15 +12,13 @@ from typing import NoReturn
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from ticket_agent import APPLICATION_DESCRIPTION
+from ticket_agent.constants.application import APPLICATION_DESCRIPTION
+from ticket_agent.constants.cli import EXIT_CODE_REFUSED
 from ticket_agent.db.engine import create_database_engine, create_session_factory
 from ticket_agent.db.models import Tenant, Ticket
 from ticket_agent.db.schema import create_schema, drop_schema, schema_exists
 from ticket_agent.db.seed_data import SEED_TENANTS, SEED_TICKETS
 from ticket_agent.settings import Settings, load_settings
-
-# Process exit code when a command refuses to run because of the database's state.
-EXIT_CODE_REFUSED = 1
 
 
 def fail(message: str) -> NoReturn:

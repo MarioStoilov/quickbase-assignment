@@ -78,6 +78,9 @@ is required, not optional.
 
 Module layout (`src/ticket_agent/`):
 
+- `constants/`: every module-level constant, one module per topic (`application`,
+  `environment`, `auth`, `cli`, `tickets`, `seed`), each with its comment. No other
+  module defines constants.
 - `settings.py`: the only module that reads the environment; one `Settings` object per
   process with a comment above every field.
 - `app.py`: FastAPI factory. Checks at startup that the schema exists and refuses to

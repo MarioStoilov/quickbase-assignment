@@ -5,12 +5,6 @@ from datetime import UTC, datetime
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-# Values a ticket's `status` column may hold, in lifecycle order.
-TICKET_STATUSES = ("open", "in_progress", "closed")
-
-# Values a ticket's `priority` column may hold, from least to most urgent.
-TICKET_PRIORITIES = ("low", "medium", "high")
-
 
 def utc_now() -> datetime:
     """Return the current time as a timezone-aware UTC datetime."""
@@ -58,10 +52,10 @@ class Ticket(Base):
 
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # One of `TICKET_STATUSES`.
+    # One of `constants.tickets.TICKET_STATUSES`.
     status: Mapped[str] = mapped_column(String(32), nullable=False)
 
-    # One of `TICKET_PRIORITIES`.
+    # One of `constants.tickets.TICKET_PRIORITIES`.
     priority: Mapped[str] = mapped_column(String(32), nullable=False)
 
     # E-mail address of the person who opened the ticket, as they typed it.

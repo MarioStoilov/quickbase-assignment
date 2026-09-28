@@ -7,6 +7,12 @@ it stands for, so that a reviewer can find the adversarial inputs at a glance.
 
 from dataclasses import dataclass
 
+from ticket_agent.constants.seed import (
+    ACME_TENANT_ID,
+    GLOBEX_TENANT_ID,
+    TARGET_FOREIGN_TICKET_ID,
+)
+
 
 @dataclass(frozen=True)
 class SeedTenant:
@@ -29,18 +35,10 @@ class SeedTicket:
     requester_email: str
 
 
-# Slugs of the two seeded tenants; the login screen offers exactly these.
-ACME_TENANT_ID = "acme"
-GLOBEX_TENANT_ID = "globex"
-
 SEED_TENANTS: tuple[SeedTenant, ...] = (
     SeedTenant(id=ACME_TENANT_ID, display_name="Acme Corporation"),
     SeedTenant(id=GLOBEX_TENANT_ID, display_name="Globex Industries"),
 )
-
-# The ticket the brief's injection payload tries to exfiltrate. It belongs to Globex, so
-# an Acme caller must never see it, whatever the model is told.
-TARGET_FOREIGN_TICKET_ID = 47
 
 SEED_TICKETS: tuple[SeedTicket, ...] = (
     # --- Acme ---------------------------------------------------------------------------

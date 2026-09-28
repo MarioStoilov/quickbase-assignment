@@ -5,14 +5,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from ticket_agent import APPLICATION_DESCRIPTION, APPLICATION_NAME, __version__
+from ticket_agent import __version__
 from ticket_agent.api import health, tenants, tickets
+from ticket_agent.constants.application import APPLICATION_DESCRIPTION, APPLICATION_NAME
+from ticket_agent.constants.cli import INIT_COMMAND_HINT
 from ticket_agent.db.engine import create_database_engine, create_session_factory
 from ticket_agent.db.schema import schema_exists
 from ticket_agent.settings import Settings, load_settings
-
-# Command a reader is pointed at when the database has not been initialised.
-INIT_COMMAND_HINT = "make init"
 
 
 class DatabaseNotInitialised(Exception):

@@ -10,16 +10,10 @@ from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
 
+from ticket_agent.constants.auth import TENANT_HEADER_NAME, UNAUTHORISED_DETAIL
 from ticket_agent.db.models import Tenant
 from ticket_agent.db.session import DatabaseSession
 from ticket_agent.tenants.repository import TenantRepository
-
-# Name of the request header that stands in for real authentication.
-TENANT_HEADER_NAME = "X-Tenant-ID"
-
-# Error text for a missing and for an unknown header alike, so the response does not
-# reveal which tenant slugs exist.
-UNAUTHORISED_DETAIL = "missing or unknown tenant"
 
 
 def caller_tenant(

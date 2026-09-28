@@ -11,21 +11,12 @@ from collections.abc import Mapping
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from ticket_agent.db.models import TICKET_PRIORITIES, TICKET_STATUSES, Ticket
-
-# Upper bound on the rows a search returns, so a broad query cannot dump the whole table
-# into the model's context.
-SEARCH_RESULT_LIMIT = 20
-
-# Columns a caller may change through `update`. Everything else (id, tenant, requester,
-# timestamps) is fixed once the ticket exists.
-MUTABLE_TICKET_FIELDS = frozenset({"title", "description", "status", "priority"})
-
-# Allowed values per constrained mutable column; free-text columns are absent.
-ALLOWED_FIELD_VALUES: Mapping[str, tuple[str, ...]] = {
-    "status": TICKET_STATUSES,
-    "priority": TICKET_PRIORITIES,
-}
+from ticket_agent.constants.tickets import (
+    ALLOWED_FIELD_VALUES,
+    MUTABLE_TICKET_FIELDS,
+    SEARCH_RESULT_LIMIT,
+)
+from ticket_agent.db.models import Ticket
 
 
 class TicketNotFound(Exception):
