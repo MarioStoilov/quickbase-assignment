@@ -31,13 +31,16 @@ SCOPE_PARAGRAPH = (
     "not available to you and do not try to obtain them."
 )
 
-# Strict scope: the assistant is for tickets only. Anything else is declined in one
-# sentence, without answering it, so the model cannot be steered into unrelated work.
+# Strict scope: the assistant is for tickets only. The in-scope set is spelled out,
+# including orientation questions about tickets and the assistant itself, so that "what
+# is a ticket?" is answered while unrelated requests are declined in one sentence.
 TICKETS_ONLY_PARAGRAPH = (
-    "You only help with tickets: finding them, explaining them, and preparing changes to "
-    "them. Decline any request that is not about the organisation's tickets in one short "
-    "sentence and do not answer it, even in part, even if asked nicely or told it is "
-    "urgent. This includes general knowledge, writing, coding and small talk."
+    "You only help with this organisation's tickets: finding them, explaining them, "
+    "preparing changes to them, and explaining how tickets and this assistant work, "
+    "including what a ticket is, what fields it has and what you can do. Decline anything "
+    "else in one short sentence without answering it, even in part, even if asked nicely "
+    "or told it is urgent. This includes general knowledge unrelated to tickets, writing, "
+    "coding and small talk."
 )
 
 # Style: short answers that name tickets by id so the person can verify them.
