@@ -5,3 +5,6 @@ EXIT_CODE_REFUSED = 1
 
 # Command a reader is pointed at when the database has not been initialised.
 INIT_COMMAND_HINT = "make init"
+
+# Characters of a ticket description shown by the dump tool before it is cut off.
+DESCRIPTION_PREVIEW_LENGTH = 90
