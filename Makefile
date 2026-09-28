@@ -1,5 +1,5 @@
 # Every target runs through uv so the project's locked environment is used.
-.PHONY: install lint format init reset-db seed db-dump run
+.PHONY: install lint format init reset-db seed db-dump llm-probe run
 
 # Create the virtual environment and install the locked dependencies.
 install:
@@ -31,6 +31,11 @@ seed:
 # descriptions).
 db-dump:
 	uv run python -m ticket_agent.db.tools.dump $(ARGS)
+
+# Send one message to the configured Gemini model and stream the reply, e.g.
+# make llm-probe ARGS="what can you do"
+llm-probe:
+	uv run python -m ticket_agent.llm.probe $(ARGS)
 
 # Start the API server on the configured host and port.
 run:

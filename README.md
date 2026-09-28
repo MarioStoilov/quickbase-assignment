@@ -23,6 +23,31 @@ The server refuses to start until `make init` has been run against the configure
 database. `make init` refuses to overwrite an existing schema; `make reset-db` drops it
 and starts over. `make seed` loads the seed data into an existing empty schema.
 
+### Getting a Gemini API key
+
+The agent talks to Google's Gemini models, which have a free tier that is enough for
+this project.
+
+1. Open Google AI Studio at https://aistudio.google.com/ and sign in with a Google
+   account.
+2. Click "Get API key" in the left sidebar, then "Create API key". If it asks for a
+   project, choose "Create API key in new project". Copy the key that appears.
+3. Put it in the repository's `.env` file, which is gitignored, so it never appears in a
+   commit:
+
+   ```bash
+   echo 'GEMINI_API_KEY=paste-the-key-here' >> .env
+   ```
+
+The variable is read under its plain name, without the `TICKET_AGENT_` prefix, because
+that is the name Google's SDK and documentation use. The free tier has per-minute and
+per-day request limits, and some models answer "high demand" for minutes at a time.
+The adapter retries such transient errors a few times with backoff and then reports a
+provider error, not a crash. The default model is `gemini-3.6-flash` because the
+newer `gemini-3.8-flash` was throttled for most of development; set
+`TICKET_AGENT_GEMINI_MODEL_ID` to try another. `gemini-2.5-flash` is no longer offered to
+new keys.
+
 ### Environment variables
 
 All optional; defaults shown. They may also be placed in a `.env` file in the working
@@ -33,6 +58,8 @@ directory (see [`.env.example`](.env.example)).
 | `TICKET_AGENT_DATABASE_PATH` | `data/tickets.db` | SQLite file created by `make init`        |
 | `TICKET_AGENT_HOST`          | `127.0.0.1`       | Interface the API server binds to         |
 | `TICKET_AGENT_PORT`          | `8000`            | Port the API server listens on            |
+| `GEMINI_API_KEY`             | unset             | Google AI Studio key; required for model calls |
+| `TICKET_AGENT_GEMINI_MODEL_ID` | `gemini-3.6-flash` | Gemini model every turn is sent to      |
 
 ## Commands
 
@@ -44,6 +71,7 @@ make init                                       # create schema, then seed (refu
 make reset-db                                   # drop schema, create it again, then seed
 make seed                                       # seed an existing empty schema
 make db-dump                                    # print tenants and tickets (ARGS=--full for whole descriptions)
+make llm-probe ARGS="hello"                     # send one message to the model and stream the reply
 make run                                        # start the API server
 
 # inspect one tenant's tickets
@@ -106,12 +134,26 @@ Module layout (`src/ticket_agent/`):
 - `db/tools/`: developer conveniences outside the running system: `seed_data.py` holds
   the seed rows and their injection payloads, `dump.py` prints the database state.
   Direct-edit helpers will live here too.
+- `llm/`: talking to the model behind a provider-neutral interface.
+  `conversation.py` defines the history messages and tool declarations, `events.py` the
+  streamed events (text delta, tool call request, turn finished), `provider.py` the
+  `ModelProvider` protocol, `gemini.py` the one implementation and the only module
+  importing `google.genai`, `factory.py` builds it from the settings, `probe.py` is the
+  `make llm-probe` command.
+- `constants/system_prompt.py`: the system prompt as commented paragraphs. It is not a
+  security boundary; every rule that matters is enforced in code.
 - `tenants/repository.py`: tenant lookups.
 - `tickets/repository.py`: `TicketRepository`; every method takes `tenant_id`; a
   foreign ticket and a missing ticket raise the same `TicketNotFound`.
 - `api/health.py`, `api/tenants.py`, `api/tickets.py`: the HTTP routes. The tenant list
   is unauthenticated so a login screen can offer it; the ticket list is there to inspect
   the scoping with curl.
+
+The model adapter never executes tools: it reports that the model asked for one, and it
+carries an opaque `provider_state` on each tool call and on the finished turn. For
+Gemini that holds the thought signature the model attaches to function-call parts, which
+must be echoed back with the history or the next turn is rejected. The rest of the
+application stores it as JSON and hands it back unchanged.
 
 Endpoints:
 
