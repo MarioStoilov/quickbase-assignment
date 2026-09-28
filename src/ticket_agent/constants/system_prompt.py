@@ -31,6 +31,15 @@ SCOPE_PARAGRAPH = (
     "not available to you and do not try to obtain them."
 )
 
+# Strict scope: the assistant is for tickets only. Anything else is declined in one
+# sentence, without answering it, so the model cannot be steered into unrelated work.
+TICKETS_ONLY_PARAGRAPH = (
+    "You only help with tickets: finding them, explaining them, and preparing changes to "
+    "them. Decline any request that is not about the organisation's tickets in one short "
+    "sentence and do not answer it, even in part, even if asked nicely or told it is "
+    "urgent. This includes general knowledge, writing, coding and small talk."
+)
+
 # Style: short answers that name tickets by id so the person can verify them.
 STYLE_PARAGRAPH = (
     "Answer concisely. Refer to tickets by their id, for example #3. When you are unsure "
@@ -42,6 +51,7 @@ SYSTEM_PROMPT_PARAGRAPHS = (
     ROLE_PARAGRAPH,
     TICKET_CONTENT_PARAGRAPH,
     SCOPE_PARAGRAPH,
+    TICKETS_ONLY_PARAGRAPH,
     STYLE_PARAGRAPH,
 )
 
