@@ -114,43 +114,56 @@ WHERE clause. A cross-tenant leak would have to be a
 repository method that does not take a tenant id; there is none, and the tenant argument
 is required, not optional.
 
-Module layout (`src/ticket_agent/`):
+Module layout (`src/ticket_agent/`), with the rule that `constants/` holds every
+module-level constant, `settings.py` is the only module that reads the environment, and
+`utils/` is never imported by the running system:
 
-- `constants/`: every module-level constant, one module per topic (`application`,
-  `environment`, `auth`, `cli`, `tickets`, `seed`), each with its comment. No other
-  module defines constants.
-- `settings.py`: the only module that reads the environment; one `Settings` object per
-  process with a comment above every field.
-- `app.py`: FastAPI factory. Checks at startup that the schema exists and refuses to
-  start otherwise, naming `make init`.
-- `__main__.py`: starts uvicorn from the settings.
-- `cli.py`: the `init` and `seed` commands.
-- `auth.py`: `TenantAuthMiddleware` (ASGI, runs before routing) and the `CallerTenant`
-  accessor; the single place the tenant enters a request.
-- `db/engine.py`: engine and session factory, foreign keys enforced per connection.
-- `db/session.py`: per-request session dependency.
-- `db/models.py`: `Tenant` and `Ticket`.
-- `db/schema.py`: create, drop and detect the schema.
-- `llm/`: talking to the model behind a provider-neutral interface.
-  `conversation.py` defines the history messages and tool declarations, `events.py` the
-  streamed events (text delta, tool call request, turn finished), `provider.py` the
-  `ModelProvider` protocol, the `gemini/` sub-package the one implementation and the
-  only code importing `google.genai` (`provider.py`, `conversion.py` for history and
-  config, `streaming.py` for chunk parsing, `signatures.py` for thought signatures),
-  `factory.py` builds it from the settings.
-- `constants/system_prompt.py`: the system prompt as commented paragraphs. It is not a
-  security boundary; every rule that matters is enforced in code.
-- `tenants/repository.py`: tenant lookups.
-- `utils/`: developer utilities outside the running system. `utils/db/seed_data.py`
-  holds the seed rows and their injection payloads, `utils/db/dump.py` prints the
-  database state (`make db-dump`), `utils/llm/probe.py` sends one message to the model
-  (`make llm-probe`). Direct-edit helpers will live under `utils/db` too. The server
-  never imports from here; only the `cli` entry point does, to seed.
-- `tickets/repository.py`: `TicketRepository`; every method takes `tenant_id`; a
-  foreign ticket and a missing ticket raise the same `TicketNotFound`.
-- `api/health.py`, `api/tenants.py`, `api/tickets.py`: the HTTP routes. The tenant list
-  is unauthenticated so a login screen can offer it; the ticket list is there to inspect
-  the scoping with curl.
+```
+ticket_agent/
+├── __main__.py            starts uvicorn from the settings
+├── app.py                 FastAPI factory; refuses to start without a schema, naming `make init`
+├── auth.py                TenantAuthMiddleware (ASGI, before routing) + CallerTenant accessor
+├── cli.py                 `init` (schema, then seed) and `seed` (data only) commands
+├── settings.py            Settings: the only reader of the environment, a comment per field
+├── api/                   HTTP routes, one module per resource
+│   ├── health.py          GET /api/health
+│   ├── tenants.py         GET /api/tenants, unauthenticated for the login screen
+│   └── tickets.py         GET /api/tickets, the caller's tickets, to inspect the scoping
+├── constants/             every module-level constant, one module per topic
+│   ├── application.py     name and description
+│   ├── auth.py            tenant header, protected prefix, public paths, 401 message
+│   ├── cli.py             exit code, `make init` hint, dump preview length
+│   ├── environment.py     env prefix and .env file name
+│   ├── llm.py             default model, finish reasons, retry settings, signature key
+│   ├── seed.py            seeded tenant slugs and the target foreign ticket id
+│   ├── system_prompt.py   the system prompt as commented paragraphs (not a security boundary)
+│   └── tickets.py         statuses, priorities, search limit, mutable fields
+├── db/                    storage plumbing
+│   ├── engine.py          engine and session factory, foreign keys enforced per connection
+│   ├── models.py          Tenant and Ticket
+│   ├── schema.py          create, drop and detect the schema
+│   └── session.py         per-request session dependency
+├── llm/                   the model behind a provider-neutral interface
+│   ├── conversation.py    history messages (user, assistant, tool result) and ToolDeclaration
+│   ├── events.py          streamed events: TextDelta, ToolCallRequest, TurnFinished
+│   ├── provider.py        ModelProvider protocol and ModelProviderError
+│   ├── factory.py         builds the configured provider, fails naming GEMINI_API_KEY
+│   └── gemini/            the one implementation; the only code importing google.genai
+│       ├── provider.py    GeminiProvider: streaming loop and transient-error retries
+│       ├── conversion.py  request config and history to SDK contents
+│       ├── streaming.py   chunks to events, finish reason mapping
+│       └── signatures.py  base64 encode/decode of thought signatures
+├── tenants/
+│   └── repository.py      tenant lookups
+├── tickets/
+│   └── repository.py      TicketRepository: every method takes tenant_id; foreign == missing
+└── utils/                 developer utilities outside the running system
+    ├── db/
+    │   ├── seed_data.py   the seed rows and their injection payloads
+    │   └── dump.py        prints tenants and tickets (`make db-dump`)
+    └── llm/
+        └── probe.py       sends one message to the model (`make llm-probe`)
+```
 
 The model adapter never executes tools: it reports that the model asked for one, and it
 carries an opaque `provider_state` on each tool call and on the finished turn. For
