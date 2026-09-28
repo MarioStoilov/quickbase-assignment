@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from ticket_agent import __version__
 from ticket_agent.api import health, tenants, tickets
+from ticket_agent.auth import TenantAuthMiddleware
 from ticket_agent.constants.application import APPLICATION_DESCRIPTION, APPLICATION_NAME
 from ticket_agent.constants.cli import INIT_COMMAND_HINT
 from ticket_agent.db.engine import create_database_engine, create_session_factory
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
+    application.add_middleware(TenantAuthMiddleware)
     application.include_router(health.router)
     application.include_router(tenants.router)
     application.include_router(tickets.router)

@@ -7,7 +7,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def utc_now() -> datetime:
-    """Return the current time as a timezone-aware UTC datetime."""
+    """Return the current time as a timezone-aware UTC datetime.
+
+    This function is purely for convenience.
+    """
     now = datetime.now(UTC)
 
     return now

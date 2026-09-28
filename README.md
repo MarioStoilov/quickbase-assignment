@@ -54,11 +54,15 @@ curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets | jq
 
 ## Authentication
 
-There is no real authentication, as the brief allows. Every request carries an
-`X-Tenant-ID` header naming one of the seeded tenants (`acme` or `globex`). The header is
-read in exactly one place, `auth.py`, which resolves it to a tenant row or answers 401.
-Everything downstream receives the resolved tenant object; nothing reads the header
-again and nothing takes a tenant id from the model's output.
+There is no real authentication, as the brief allows. Every request to a path under
+`/api/` carries an `X-Tenant-ID` header naming one of the seeded tenants (`acme` or
+`globex`), except the two public paths `/api/health` and `/api/tenants`. The header is
+read in exactly one place, the `TenantAuthMiddleware` in `auth.py`, which runs before
+routing, resolves the header to a tenant row and stores it in the request state, or
+answers 401 with one message for a missing and an unknown header alike. Handlers receive
+the stored row through the typed `CallerTenant` accessor; nothing reads the header again
+and nothing takes a tenant id from the model's output. Paths outside `/api/` (the API
+docs, later the frontend bundle) are served to anyone.
 
 ## Seed data
 
@@ -75,9 +79,10 @@ descriptions carry prompt-injection payloads, each marked with a comment in
 
 ## Architecture
 
-The request path today: HTTP request with `X-Tenant-ID`, `auth.caller_tenant` resolves
-the tenant, the handler opens a `TicketRepository` and passes `tenant.id` to it, the
-repository puts that id in the WHERE clause. A cross-tenant leak would have to be a
+The request path today: HTTP request with `X-Tenant-ID`, `TenantAuthMiddleware` resolves
+the tenant before routing, the handler receives it as `CallerTenant`, opens a
+`TicketRepository` and passes `tenant.id` to it, and the repository puts that id in the
+WHERE clause. A cross-tenant leak would have to be a
 repository method that does not take a tenant id; there is none, and the tenant argument
 is required, not optional.
 
@@ -92,7 +97,8 @@ Module layout (`src/ticket_agent/`):
   start otherwise, naming `make init`.
 - `__main__.py`: starts uvicorn from the settings.
 - `cli.py`: the `init` and `seed` commands.
-- `auth.py`: `caller_tenant` dependency; the single place the tenant enters a request.
+- `auth.py`: `TenantAuthMiddleware` (ASGI, runs before routing) and the `CallerTenant`
+  accessor; the single place the tenant enters a request.
 - `db/engine.py`: engine and session factory, foreign keys enforced per connection.
 - `db/session.py`: per-request session dependency.
 - `db/models.py`: `Tenant` and `Ticket`.
