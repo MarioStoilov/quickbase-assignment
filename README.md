@@ -66,17 +66,36 @@ directory (see [`.env.example`](.env.example)).
 
 ## Commands
 
+Every target runs through `uv`, so the locked environment is used without activating
+it by hand.
+
+### Environment and code quality
+
 ```bash
 make install                                    # uv sync: virtual environment + locked deps
 make lint                                       # ruff format --check and ruff check
 make format                                     # ruff format and auto-fixable lint rules
+```
+
+### Database
+
+```bash
 make init                                       # create schema, then seed (refuses existing schema)
 make reset-db                                   # drop schema, create it again, then seed
 make seed                                       # seed an existing empty schema
 make db-dump                                    # print tenants and tickets (ARGS=--full for whole descriptions)
-make llm-probe ARGS="hello"                     # send one message to the model and stream the reply
-make run                                        # start the API server
+```
 
+### Running
+
+```bash
+make run                                        # start the API server
+make llm-probe ARGS="hello"                     # send one message to the model and stream the reply, no server needed
+```
+
+### Talking to the running server
+
+```bash
 # inspect one tenant's tickets
 curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets
 # for a more readable output (requires jq)
