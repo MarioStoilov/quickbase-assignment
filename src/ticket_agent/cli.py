@@ -114,12 +114,15 @@ def run_seed(engine: Engine, settings: Settings) -> None:
 
 
 def run_init(engine: Engine, settings: Settings, reset: bool) -> None:
-    """Create the schema, dropping an existing one only when `reset` is set, then seed.
+    """Create the schema, dropping whatever exists only when `reset` is set, then seed.
+
+    With `reset`, every model table present is dropped, including a partial schema
+    left by an older version of the models, so the seed always runs on empty tables.
 
     Args:
         engine: engine bound to the configured database.
         settings: process settings, for the path shown in messages.
-        reset: drop an existing schema instead of refusing.
+        reset: drop existing tables instead of refusing.
 
     Raises:
         SystemExit: the schema already exists and `reset` is not set.
@@ -132,9 +135,9 @@ def run_init(engine: Engine, settings: Settings, reset: bool) -> None:
             "pass --reset to drop it and start over"
         )
 
-    if is_initialised:
+    if reset:
         drop_schema(engine)
-        print(f"dropped existing schema in {settings.database_path}")
+        print(f"dropped existing tables in {settings.database_path}")
 
     create_schema(engine)
     print(f"created schema in {settings.database_path}")

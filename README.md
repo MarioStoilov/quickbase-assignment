@@ -20,8 +20,11 @@ make run         # start the API on http://127.0.0.1:8000
 ```
 
 The server refuses to start until `make init` has been run against the configured
-database. `make init` refuses to overwrite an existing schema; `make reset-db` drops it
-and starts over. `make seed` loads the seed data into an existing empty schema.
+database, and until `GEMINI_API_KEY` is set (next section); both failures name what is
+missing. `make init` refuses to overwrite an existing schema; `make reset-db` drops it
+and starts over. `make seed` loads the seed data into an existing empty schema. After
+pulling a change that adds a table, run `make reset-db`: the server checks that every
+table exists and there is no migration tooling.
 
 ### Getting a Gemini API key
 
@@ -63,21 +66,48 @@ directory (see [`.env.example`](.env.example)).
 
 ## Commands
 
+Every target runs through `uv`, so the locked environment is used without activating
+it by hand.
+
+### Environment and code quality
+
 ```bash
 make install                                    # uv sync: virtual environment + locked deps
 make lint                                       # ruff format --check and ruff check
 make format                                     # ruff format and auto-fixable lint rules
+```
+
+### Database
+
+```bash
 make init                                       # create schema, then seed (refuses existing schema)
 make reset-db                                   # drop schema, create it again, then seed
 make seed                                       # seed an existing empty schema
 make db-dump                                    # print tenants and tickets (ARGS=--full for whole descriptions)
-make llm-probe ARGS="hello"                     # send one message to the model and stream the reply
-make run                                        # start the API server
+```
 
+### Running
+
+```bash
+make run                                        # start the API server
+make llm-probe ARGS="hello"                     # send one message to the model and stream the reply, no server needed
+```
+
+### Talking to the running server
+
+```bash
 # inspect one tenant's tickets
 curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets
 # for a more readable output (requires jq)
 curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets | jq
+
+# chat as acme: create a conversation, post to it (-N shows the events as they
+# stream), read it back. A second post to the same id lets the model see the first
+# exchange.
+CONVERSATION_ID=$(curl -s -X POST -H 'X-Tenant-ID: acme' localhost:8000/api/chat/new | jq -r .id)
+curl -N -H 'X-Tenant-ID: acme' -H 'Content-Type: application/json' localhost:8000/api/chat/$CONVERSATION_ID \
+  -d '{"message": {"role": "user", "parts": [{"type": "text", "text": "what can you do?"}]}}'
+curl -s -H 'X-Tenant-ID: acme' localhost:8000/api/chat/$CONVERSATION_ID | jq
 ```
 
 ## Authentication
@@ -105,14 +135,46 @@ descriptions carry prompt-injection payloads, each marked with a comment in
 - Acme #5: claims approval was already granted and asks for an immediate update.
 - Globex #45: impersonates an administrator of the other tenant and asks for its tickets.
 
+## Conversations
+
+A chat is a *tenant conversation*: a row bound to one tenant, plus its messages in
+order. Its lifecycle is three calls. `POST /api/chat/new` creates an empty conversation
+for the calling tenant and returns a server-generated id. `POST /api/chat/{id}` appends
+one user message and streams the reply. `GET /api/chat/{id}` returns the conversation
+with its stored messages. The client sends only the newest message with each post; the
+server holds the whole history and resends it to the model every turn. Holding it
+server-side means the client cannot rewrite the past, for example by inserting a
+fabricated tool result or a message claiming an approval was granted; that matters for
+the approval flow that milestone 4 adds on top.
+
+Every store method takes the tenant id, the same rule as for tickets. The id is never
+chosen by the client, so it cannot be picked to collide with another tenant's. Reading
+or posting to an id that does not exist or belongs to another tenant answers 404 with
+one wording for both, so the response does not confirm that the id exists.
+
+A turn is stored as the user message, then one assistant message once the model
+finishes, together with the opaque provider state the model needs back. If the
+provider fails mid-stream or refuses to answer, the text streamed so far is stored and
+an `error` part follows it, so the history matches what the person saw; a turn that
+produced no text stores no assistant message.
+
 ## Architecture
 
-The request path today: HTTP request with `X-Tenant-ID`, `TenantAuthMiddleware` resolves
-the tenant before routing, the handler receives it as `CallerTenant`, opens a
-`TicketRepository` and passes `tenant.id` to it, and the repository puts that id in the
-WHERE clause. A cross-tenant leak would have to be a
-repository method that does not take a tenant id; there is none, and the tenant argument
-is required, not optional.
+The request path for a chat message: HTTP `POST /api/chat/{id}` with `X-Tenant-ID`,
+`TenantAuthMiddleware` resolves the tenant before routing, the handler validates the
+body and settles conversation ownership through `TenantConversationStore.get` (404
+before anything is stored or streamed), then `run_turn` in `agent/loop.py` appends the
+user message, loads the history, streams the model through the provider interface and
+stores the answer. `api/ui_stream.py` encodes the loop's events as the AI SDK UI message
+stream that the frontend will consume: server-sent events `start`, `text-start`,
+`text-delta`, `text-end`, `error`, `finish`, then `[DONE]`, under the header
+`x-vercel-ai-ui-message-stream: v1`.
+
+For tickets the same shape applies: the handler receives the tenant as `CallerTenant`,
+opens a `TicketRepository` and passes `tenant.id` to it, and the repository puts that id
+in the WHERE clause. A cross-tenant leak would have to be a repository or store method
+that does not take a tenant id; there is none, and the tenant argument is required, not
+optional.
 
 Module layout (`src/ticket_agent/`), with the rule that `constants/` holds every
 module-level constant, `settings.py` is the only module that reads the environment, and
@@ -125,22 +187,31 @@ ticket_agent/
 ├── auth.py                TenantAuthMiddleware (ASGI, before routing) + CallerTenant accessor
 ├── cli.py                 `init` (schema, then seed) and `seed` (data only) commands
 ├── settings.py            Settings: the only reader of the environment, a comment per field
+├── agent/                 conversation storage and the loop that drives one turn
+│   ├── loop.py            run_turn: append the message, stream the model, store the answer
+│   ├── message_serialisation.py  history messages to stored rows and back
+│   └── tenant_conversations.py   TenantConversationStore: create, get, history, append
 ├── api/                   HTTP routes, one module per resource
+│   ├── chat.py            POST /api/chat/new, GET and POST /api/chat/{id}
 │   ├── health.py          GET /api/health
 │   ├── tenants.py         GET /api/tenants, unauthenticated for the login screen
-│   └── tickets.py         GET /api/tickets, the caller's tickets, to inspect the scoping
+│   ├── tickets.py         GET /api/tickets, the caller's tickets, to inspect the scoping
+│   └── ui_stream.py       encoder for the AI SDK UI message stream (server-sent events)
 ├── constants/             every module-level constant, one module per topic
 │   ├── application.py     name and description
 │   ├── auth.py            tenant header, protected prefix, public paths, 401 message
+│   ├── chat.py            request rejections and the blocked-answer text
 │   ├── cli.py             exit code, `make init` hint, dump preview length
+│   ├── conversations.py   stored message roles, id length, 404 message
 │   ├── environment.py     env prefix and .env file name
 │   ├── llm.py             default model, finish reasons, retry settings, signature key
 │   ├── seed.py            seeded tenant slugs and the target foreign ticket id
 │   ├── system_prompt.py   the system prompt as commented paragraphs (not a security boundary)
-│   └── tickets.py         statuses, priorities, search limit, mutable fields
+│   ├── tickets.py         statuses, priorities, search limit, mutable fields
+│   └── ui_stream.py       stream header, part types and field names of the AI SDK protocol
 ├── db/                    storage plumbing
 │   ├── engine.py          engine and session factory, foreign keys enforced per connection
-│   ├── models.py          Tenant and Ticket
+│   ├── models.py          Tenant, Ticket, TenantConversation, ConversationMessage
 │   ├── schema.py          create, drop and detect the schema
 │   └── session.py         per-request session dependency
 ├── llm/                   the model behind a provider-neutral interface
@@ -169,12 +240,26 @@ The model adapter never executes tools: it reports that the model asked for one,
 carries an opaque `provider_state` on each tool call and on the finished turn. For
 Gemini that holds the thought signature the model attaches to function-call parts, which
 must be echoed back with the history or the next turn is rejected. The rest of the
-application stores it as JSON and hands it back unchanged.
+application stores it as JSON in the message row and hands it back unchanged.
+
+The provider is built once at startup and stored on the application state; `create_app`
+accepts one from outside so tests can pass a scripted model and run without a key.
 
 Endpoints:
 
-| Method | Path           | Auth | Purpose                                  |
-|--------|----------------|------|------------------------------------------|
-| GET    | `/api/health`  | no   | liveness and version                     |
-| GET    | `/api/tenants` | no   | the seeded tenants, for the login screen |
-| GET    | `/api/tickets` | yes  | the caller's tickets                     |
+| Method | Path             | Auth | Purpose                                   |
+|--------|------------------|------|-------------------------------------------|
+| GET    | `/api/health`    | no   | liveness and version                      |
+| GET    | `/api/tenants`   | no   | the seeded tenants, for the login screen  |
+| GET    | `/api/tickets`   | yes  | the caller's tickets                      |
+| POST   | `/api/chat/new`  | yes | create a conversation, returns its id     |
+| GET    | `/api/chat/{id}` | yes | the conversation with its stored messages |
+| POST   | `/api/chat/{id}` | yes | one user message in, one streamed reply   |
+
+## Known caveats
+
+- Timestamps are not uniformly timezone-marked. A row returned straight after it is
+  created carries a `Z` suffix, while the same row read back from SQLite does not,
+  because SQLite stores no timezone and SQLAlchemy returns a naive value. Every stored
+  time is UTC either way. This is left as is for the purposes of the task; a real
+  service would normalise on the way out of the database.
