@@ -61,3 +61,35 @@ UI_MESSAGE_TEXT_PART_TYPE = "text"
 
 # Role of a UI message written by the person in the chat, in the request body.
 UI_MESSAGE_ROLE_USER = "user"
+
+# Part type announcing a tool call with its complete arguments; the trace shows it.
+PART_TYPE_TOOL_INPUT_AVAILABLE = "tool-input-available"
+
+# Part type carrying the result of a tool call that has run.
+PART_TYPE_TOOL_OUTPUT_AVAILABLE = "tool-output-available"
+
+# Custom data part (the protocol reserves the `data-` prefix for application parts)
+# telling the client that the stream stopped on a tool call awaiting the person's
+# answer, and which options the tool offers.
+PART_TYPE_TOOL_RESPONSE_REQUIRED = "data-tool-response-required"
+
+# Field carrying the tool call id on tool parts and on the response-required part.
+FIELD_TOOL_CALL_ID = "toolCallId"
+
+# Field carrying the tool name on a tool-input-available part.
+FIELD_TOOL_NAME = "toolName"
+
+# Field carrying the model's arguments on a tool-input-available part.
+FIELD_INPUT = "input"
+
+# Field carrying the result on a tool-output-available part.
+FIELD_OUTPUT = "output"
+
+# Field carrying the payload of a custom data part.
+FIELD_DATA = "data"
+
+# Key inside the response-required payload listing the options the person may pick.
+DATA_KEY_OPTIONS = "options"
+
+# Key inside the response-required payload naming the tool, for the client's prompt.
+DATA_KEY_TOOL_NAME = "toolName"

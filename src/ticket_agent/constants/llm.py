@@ -1,10 +1,12 @@
 """Model provider defaults and the provider-neutral vocabulary of a turn."""
 
 # Gemini model used when TICKET_AGENT_GEMINI_MODEL_ID is not set. A pinned id rather
-# than a "latest" alias so that behaviour does not change underneath a reviewer. Google's
-# quickstart recommends gemini-3.8-flash, but during development that model answered
-# "high demand" (503) on the free tier for minutes at a time while 3.6 answered at once.
-DEFAULT_GEMINI_MODEL_ID = "gemini-3.6-flash"
+# than a "latest" alias so that behaviour does not change underneath a reviewer. The
+# Flash Lite tier has the largest free quota, which matters because a single chat turn
+# with tools is several requests; gemini-3.8-flash answered "high demand" (503) for
+# minutes at a time and gemini-3.6-flash ran into the per-day free quota during a
+# demo, while this model did neither.
+DEFAULT_GEMINI_MODEL_ID = "gemini-3.5-flash-lite"
 
 # The model produced a complete answer and stopped on its own.
 FINISH_REASON_STOP = "stop"

@@ -46,6 +46,41 @@ class TicketRepository:
         """Bind the repository to `session`; the caller owns the session's lifetime."""
         self._session = session
 
+    def validate_update_fields(self, fields: Mapping[str, str]) -> None:
+        """Reject an update that touches a fixed column or uses a value outside its set.
+
+        Public so that a caller can check an update before acting on it, for example
+        before asking a person to approve one. `update` applies the same check itself.
+
+        Args:
+            fields: column name to new value, as supplied by the caller.
+
+        Raises:
+            InvalidTicketFields: `fields` is empty, a name is not in
+                `MUTABLE_TICKET_FIELDS`, or a constrained column gets a value outside
+                `ALLOWED_FIELD_VALUES`.
+        """
+        is_empty = len(fields) == 0
+
+        if is_empty:
+            raise InvalidTicketFields("no fields to update")
+
+        for field_name, new_value in fields.items():
+            is_mutable = field_name in MUTABLE_TICKET_FIELDS
+            if not is_mutable:
+                allowed_names = ", ".join(sorted(MUTABLE_TICKET_FIELDS))
+                raise InvalidTicketFields(
+                    f"field '{field_name}' cannot be changed; allowed: {allowed_names}"
+                )
+
+            allowed_values = ALLOWED_FIELD_VALUES.get(field_name)
+            is_constrained = allowed_values is not None
+            if is_constrained and new_value not in allowed_values:
+                allowed_list = ", ".join(allowed_values)
+                raise InvalidTicketFields(
+                    f"'{new_value}' is not a valid {field_name}; allowed: {allowed_list}"
+                )
+
     def list_for_tenant(self, tenant_id: str) -> list[Ticket]:
         """Return every ticket of `tenant_id`, oldest first.
 
@@ -133,7 +168,7 @@ class TicketRepository:
                 or gives `status` or `priority` a value outside its allowed set.
             TicketNotFound: the id does not exist or belongs to another tenant.
         """
-        _validate_update_fields(fields)
+        self.validate_update_fields(fields)
 
         ticket = self.get(tenant_id, ticket_id)
 
@@ -166,35 +201,3 @@ class TicketRepository:
         self._session.commit()
 
         return ticket
-
-
-def _validate_update_fields(fields: Mapping[str, str]) -> None:
-    """Reject an update that touches a fixed column or uses a value outside its set.
-
-    Args:
-        fields: column name to new value, as supplied by the caller.
-
-    Raises:
-        InvalidTicketFields: `fields` is empty, a name is not in `MUTABLE_TICKET_FIELDS`,
-            or a constrained column gets a value outside `ALLOWED_FIELD_VALUES`.
-    """
-    is_empty = len(fields) == 0
-
-    if is_empty:
-        raise InvalidTicketFields("no fields to update")
-
-    for field_name, new_value in fields.items():
-        is_mutable = field_name in MUTABLE_TICKET_FIELDS
-        if not is_mutable:
-            allowed_names = ", ".join(sorted(MUTABLE_TICKET_FIELDS))
-            raise InvalidTicketFields(
-                f"field '{field_name}' cannot be changed; allowed: {allowed_names}"
-            )
-
-        allowed_values = ALLOWED_FIELD_VALUES.get(field_name)
-        is_constrained = allowed_values is not None
-        if is_constrained and new_value not in allowed_values:
-            allowed_list = ", ".join(allowed_values)
-            raise InvalidTicketFields(
-                f"'{new_value}' is not a valid {field_name}; allowed: {allowed_list}"
-            )

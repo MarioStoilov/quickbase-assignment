@@ -46,10 +46,10 @@ The variable is read under its plain name, without the `TICKET_AGENT_` prefix, b
 that is the name Google's SDK and documentation use. The free tier has per-minute and
 per-day request limits, and some models answer "high demand" for minutes at a time.
 The adapter retries such transient errors a few times with backoff and then reports a
-provider error, not a crash. The default model is `gemini-3.6-flash` because the
-newer `gemini-3.8-flash` was throttled for most of development; set
-`TICKET_AGENT_GEMINI_MODEL_ID` to try another. `gemini-2.5-flash` is no longer offered to
-new keys.
+provider error, not a crash. The default model is `gemini-3.5-flash-lite`, the tier
+with the largest free quota: one chat turn with tools is several requests, and the
+larger Flash models ran into their per-day limit or were throttled during development.
+Set `TICKET_AGENT_GEMINI_MODEL_ID` to try another, for example `gemini-3.6-flash`.
 
 ### Environment variables
 
@@ -62,7 +62,8 @@ directory (see [`.env.example`](.env.example)).
 | `TICKET_AGENT_HOST`          | `127.0.0.1`       | Interface the API server binds to         |
 | `TICKET_AGENT_PORT`          | `8000`            | Port the API server listens on            |
 | `GEMINI_API_KEY`             | unset             | Google AI Studio key; required for model calls |
-| `TICKET_AGENT_GEMINI_MODEL_ID` | `gemini-3.6-flash` | Gemini model every turn is sent to      |
+| `TICKET_AGENT_GEMINI_MODEL_ID` | `gemini-3.5-flash-lite` | Gemini model every turn is sent to |
+| `TICKET_AGENT_MAX_TOOL_ROUNDS` | `8`               | Model calls per request; bounds runaway tool use |
 
 ## Commands
 
@@ -106,8 +107,17 @@ curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets | jq
 # exchange.
 CONVERSATION_ID=$(curl -s -X POST -H 'X-Tenant-ID: acme' localhost:8000/api/chat/new | jq -r .id)
 curl -N -H 'X-Tenant-ID: acme' -H 'Content-Type: application/json' localhost:8000/api/chat/$CONVERSATION_ID \
-  -d '{"message": {"role": "user", "parts": [{"type": "text", "text": "what can you do?"}]}}'
+  -d '{"message": {"role": "user", "parts": [{"type": "text", "text": "show my open tickets"}]}}'
 curl -s -H 'X-Tenant-ID: acme' localhost:8000/api/chat/$CONVERSATION_ID | jq
+
+# ask for a change: the stream ends on a `data-tool-response-required` part and the
+# conversation is frozen; read it to see the pending call, then answer it. The answer
+# streams the outcome and the model's report.
+curl -N -H 'X-Tenant-ID: acme' -H 'Content-Type: application/json' localhost:8000/api/chat/$CONVERSATION_ID \
+  -d '{"message": {"role": "user", "parts": [{"type": "text", "text": "delete ticket 2"}]}}'
+CALL_ID=$(curl -s -H 'X-Tenant-ID: acme' localhost:8000/api/chat/$CONVERSATION_ID | jq -r .pending_tool_call.call_id)
+curl -N -H 'X-Tenant-ID: acme' -H 'Content-Type: application/json' \
+  localhost:8000/api/chat/$CONVERSATION_ID/tool-calls/$CALL_ID/response -d '{"option": "approve"}'
 ```
 
 ## Authentication
@@ -152,23 +162,61 @@ chosen by the client, so it cannot be picked to collide with another tenant's. R
 or posting to an id that does not exist or belongs to another tenant answers 404 with
 one wording for both, so the response does not confirm that the id exists.
 
-A turn is stored as the user message, then one assistant message once the model
-finishes, together with the opaque provider state the model needs back. If the
+A turn is stored as the user message, then one assistant message per model round with
+its text and tool calls, then one tool result per call, together with the opaque
+provider state the model needs back. If the
 provider fails mid-stream or refuses to answer, the text streamed so far is stored and
 an `error` part follows it, so the history matches what the person saw; a turn that
 produced no text stores no assistant message.
+
+## Tools and the response gate
+
+The model reaches the ticket store only through the tools in `tools/`, each in its own
+sub-package with its own constants: `search_tickets` (a `query`) and `mutate_ticket`
+(`ticket_id`, `action` of update or delete, and `fields` for an update). A tool's
+argument schema never contains a tenant or a conversation. Those come from a
+`ToolContext` the loop builds from the conversation the request was authorised
+against, so the model cannot name a tenant, and every repository call inside a tool
+carries the caller's tenant id.
+
+A tool declares `response_options`. Empty means it runs as soon as its arguments
+validate; `search_tickets` is such a tool. Non-empty means the tool cannot run on the
+model's word: the loop stores the model's turn, sets the conversation's status to
+`awaiting_tool_response` with the call id, streams a `data-tool-response-required` part
+naming the options, and ends the stream. `mutate_ticket` offers `approve` and
+`reject`. While frozen, `POST /api/chat/{id}` answers 409 naming the pending call.
+The person answers through `POST /api/chat/{id}/tool-calls/{call_id}/response` with
+`{"option": ...}`; only the option travels, the arguments that run are the ones stored
+when the model made the call. A call id that is not the pending one, including a
+second answer to the same call, gets 409; an option the tool does not offer gets 400;
+another tenant gets 404. On approve the tool runs with ownership checked again; on
+reject it returns a declined result. Either way the result is stored, the conversation
+is unfrozen, and the loop continues so the model reports the outcome.
+
+`validate` runs before the person is asked. For `mutate_ticket` it checks the action,
+the fields against the repository's rules, and then that the ticket exists within the
+caller's tenant. A ticket of another tenant, such as the brief's #47, fails with the
+same not-found error as a missing one: the model is told, no prompt appears, and the
+conversation stays active. Calls are handled one at a time in the model's order, so a
+turn that proposes several changes waits on the first, then the next after each
+answer; the model is called again only when every call of its turn has a result. The
+number of model calls per request is bounded by `TICKET_AGENT_MAX_TOOL_ROUNDS`.
 
 ## Architecture
 
 The request path for a chat message: HTTP `POST /api/chat/{id}` with `X-Tenant-ID`,
 `TenantAuthMiddleware` resolves the tenant before routing, the handler validates the
-body and settles conversation ownership through `TenantConversationStore.get` (404
-before anything is stored or streamed), then `run_turn` in `agent/loop.py` appends the
-user message, loads the history, streams the model through the provider interface and
-stores the answer. `api/ui_stream.py` encodes the loop's events as the AI SDK UI message
-stream that the frontend will consume: server-sent events `start`, `text-start`,
-`text-delta`, `text-end`, `error`, `finish`, then `[DONE]`, under the header
-`x-vercel-ai-ui-message-stream: v1`.
+body, settles conversation ownership through `TenantConversationStore.get` (404 before
+anything is stored or streamed) and refuses a frozen conversation (409), then
+`run_turn` in `agent/loop.py` appends the user message and drives the loop: the model
+is streamed through the provider interface, each tool call it makes is validated and
+run through the registry with a context built from the conversation, and the model is
+called again with the results until a turn ends without calls, a tool needs the
+person's answer, or the round bound is hit. `api/ui_stream.py` encodes the loop's
+events as the AI SDK UI message stream that the frontend will consume: server-sent
+events `start`, `text-start`, `text-delta`, `text-end`, `tool-input-available`,
+`tool-output-available`, `data-tool-response-required`, `error`, `finish`, then
+`[DONE]`, under the header `x-vercel-ai-ui-message-stream: v1`.
 
 For tickets the same shape applies: the handler receives the tenant as `CallerTenant`,
 opens a `TicketRepository` and passes `tenant.id` to it, and the repository puts that id
@@ -188,11 +236,11 @@ ticket_agent/
 ├── cli.py                 `init` (schema, then seed) and `seed` (data only) commands
 ├── settings.py            Settings: the only reader of the environment, a comment per field
 ├── agent/                 conversation storage and the loop that drives one turn
-│   ├── loop.py            run_turn: append the message, stream the model, store the answer
+│   ├── loop.py            run_turn and resume_turn: model rounds, tool calls, the freeze
 │   ├── message_serialisation.py  history messages to stored rows and back
-│   └── tenant_conversations.py   TenantConversationStore: create, get, history, append
+│   └── tenant_conversations.py   TenantConversationStore: create, get, freeze, unfreeze, history, append
 ├── api/                   HTTP routes, one module per resource
-│   ├── chat.py            POST /api/chat/new, GET and POST /api/chat/{id}
+│   ├── chat.py            POST /api/chat/new, GET and POST /api/chat/{id}, the tool response route
 │   ├── health.py          GET /api/health
 │   ├── tenants.py         GET /api/tenants, unauthenticated for the login screen
 │   ├── tickets.py         GET /api/tickets, the caller's tickets, to inspect the scoping
@@ -200,14 +248,15 @@ ticket_agent/
 ├── constants/             every module-level constant, one module per topic
 │   ├── application.py     name and description
 │   ├── auth.py            tenant header, protected prefix, public paths, 401 message
-│   ├── chat.py            request rejections and the blocked-answer text
+│   ├── chat.py            request rejections, the blocked-answer text, the round bound default
 │   ├── cli.py             exit code, `make init` hint, dump preview length
-│   ├── conversations.py   stored message roles, id length, 404 message
+│   ├── conversations.py   stored message roles, id length, statuses, 404 and 409 messages
 │   ├── environment.py     env prefix and .env file name
 │   ├── llm.py             default model, finish reasons, retry settings, signature key
 │   ├── seed.py            seeded tenant slugs and the target foreign ticket id
 │   ├── system_prompt.py   the system prompt as commented paragraphs (not a security boundary)
 │   ├── tickets.py         statuses, priorities, search limit, mutable fields
+│   ├── tools.py           what every tool shares: the error key, unknown-tool and round-limit texts
 │   └── ui_stream.py       stream header, part types and field names of the AI SDK protocol
 ├── db/                    storage plumbing
 │   ├── engine.py          engine and session factory, foreign keys enforced per connection
@@ -228,6 +277,11 @@ ticket_agent/
 │   └── repository.py      tenant lookups
 ├── tickets/
 │   └── repository.py      TicketRepository: every method takes tenant_id; foreign == missing
+├── tools/                 what the model may call; one sub-package per tool with its own constants
+│   ├── base.py            Tool, ToolContext (tenant and conversation, never model input), ToolError
+│   ├── registry.py        ToolRegistry: register, get, declarations
+│   ├── search_tickets/    the read-only tool, no response options
+│   └── mutate_ticket/     update or delete, options approve and reject; ownership checked in validate
 └── utils/                 developer utilities outside the running system
     ├── db/
     │   ├── seed_data.py   the seed rows and their injection payloads
@@ -254,7 +308,8 @@ Endpoints:
 | GET    | `/api/tickets`   | yes  | the caller's tickets                      |
 | POST   | `/api/chat/new`  | yes | create a conversation, returns its id     |
 | GET    | `/api/chat/{id}` | yes | the conversation with its stored messages |
-| POST   | `/api/chat/{id}` | yes | one user message in, one streamed reply   |
+| POST   | `/api/chat/{id}` | yes | one user message in, one streamed reply; 409 while frozen |
+| POST   | `/api/chat/{id}/tool-calls/{call_id}/response` | yes | answer the pending call, stream the continuation |
 
 ## Known caveats
 
