@@ -16,8 +16,12 @@ from ticket_agent.agent.message_serialisation import (
     message_from_role_and_content,
     role_and_content_of,
 )
+from ticket_agent.constants.conversations import (
+    CONVERSATION_STATUS_ACTIVE,
+    CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE,
+)
 from ticket_agent.db.models import ConversationMessage, TenantConversation
-from ticket_agent.llm.conversation import Message
+from ticket_agent.llm.conversation import AssistantMessage, Message, ToolCall
 
 
 class ConversationNotFound(Exception):
@@ -88,6 +92,78 @@ class TenantConversationStore:
         self._session.commit()
 
         return conversation
+
+    def freeze_on_tool_call(self, tenant_id: str, conversation_id: str, tool_call_id: str) -> None:
+        """Halt the conversation until the person answers the call `tool_call_id`.
+
+        While frozen, the conversation accepts no new message; `is_frozen` reports the
+        state and `pending_tool_call` returns the call as the model made it.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            conversation_id: the conversation to halt.
+            tool_call_id: id of the call, as stored in the newest assistant message.
+
+        Raises:
+            ConversationNotFound: the id does not exist or belongs to another tenant.
+        """
+        conversation = self.get(tenant_id, conversation_id)
+
+        conversation.status = CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
+        conversation.pending_tool_call_id = tool_call_id
+        self._session.commit()
+
+    def unfreeze(self, tenant_id: str, conversation_id: str) -> None:
+        """Make the conversation accept messages again after its pending call is resolved.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            conversation_id: the conversation to release.
+
+        Raises:
+            ConversationNotFound: the id does not exist or belongs to another tenant.
+        """
+        conversation = self.get(tenant_id, conversation_id)
+
+        conversation.status = CONVERSATION_STATUS_ACTIVE
+        conversation.pending_tool_call_id = None
+        self._session.commit()
+
+    def pending_tool_call(self, tenant_id: str, conversation_id: str) -> ToolCall | None:
+        """Return the call the conversation is halted on, with the arguments as stored.
+
+        The arguments are read from the assistant message that made the call, never
+        from anything the client sends, so what runs after the person's answer is what
+        the model asked for.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            conversation_id: the conversation to inspect.
+
+        Returns:
+            The pending call, or None when the conversation is active.
+
+        Raises:
+            ConversationNotFound: the id does not exist or belongs to another tenant.
+        """
+        conversation = self.get(tenant_id, conversation_id)
+        pending_call_id = conversation.pending_tool_call_id
+        is_frozen = pending_call_id is not None
+        if not is_frozen:
+            return None
+
+        history = self.history(tenant_id, conversation_id)
+
+        for message in reversed(history):
+            is_assistant = isinstance(message, AssistantMessage)
+            if not is_assistant:
+                continue
+            for tool_call in message.tool_calls:
+                is_pending_call = tool_call.call_id == pending_call_id
+                if is_pending_call:
+                    return tool_call
+
+        return None
 
     def history(self, tenant_id: str, conversation_id: str) -> list[Message]:
         """Return every message of the conversation, oldest first.

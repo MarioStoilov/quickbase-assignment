@@ -10,6 +10,7 @@ from pathlib import Path
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from ticket_agent.constants.chat import DEFAULT_MAX_TOOL_ROUNDS
 from ticket_agent.constants.environment import ENVIRONMENT_FILE_NAME, ENVIRONMENT_PREFIX
 from ticket_agent.constants.llm import DEFAULT_GEMINI_MODEL_ID
 
@@ -42,6 +43,12 @@ class Settings(BaseSettings):
 
     # Gemini model id every turn is sent to. Default: the pinned id in constants.llm.
     gemini_model_id: str = DEFAULT_GEMINI_MODEL_ID
+
+    # How many times the model may be called for one request or one tool response,
+    # counting the first call; each tool round is one more call. When the bound is hit
+    # the request ends with an error shown in the chat and the conversation stays
+    # usable. Default: DEFAULT_MAX_TOOL_ROUNDS in constants.chat.
+    max_tool_rounds: int = DEFAULT_MAX_TOOL_ROUNDS
 
     @property
     def database_url(self) -> str:

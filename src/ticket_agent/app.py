@@ -15,6 +15,7 @@ from ticket_agent.db.schema import schema_exists
 from ticket_agent.llm.factory import ModelNotConfigured, build_model_provider
 from ticket_agent.llm.provider import ModelProvider
 from ticket_agent.settings import Settings, load_settings
+from ticket_agent.tools import build_default_registry
 
 
 class DatabaseNotInitialised(Exception):
@@ -44,7 +45,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        """Open the database and the model provider at startup; dispose at shutdown.
+        """Open the database, the model provider and the tool registry at startup.
 
         Raises:
             DatabaseNotInitialised: the schema is missing; the message names `make init`.
@@ -75,6 +76,7 @@ def create_app(
         application.state.engine = engine
         application.state.session_factory = create_session_factory(engine)
         application.state.model_provider = provider
+        application.state.tool_registry = build_default_registry()
 
         yield
 
