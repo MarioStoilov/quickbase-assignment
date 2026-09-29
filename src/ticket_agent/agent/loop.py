@@ -50,8 +50,8 @@ async def run_turn(
 ) -> AsyncIterator[AgentEvent]:
     """Append `incoming_message` to the conversation and stream the model's reply.
 
-    The conversation must already be visible to `tenant_id` (see
-    `TenantConversationStore.get_or_create`); the store checks that again on every
+    The conversation must already exist for `tenant_id` (the endpoint creates it with
+    `TenantConversationStore.create`); the store checks ownership again on every
     access. The reply is stored as one assistant message when the model finishes. A
     provider failure or a blocked answer yields `TurnInterrupted` last; text received
     before that point is stored, so the history stays consistent with what the person

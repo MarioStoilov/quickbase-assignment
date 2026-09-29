@@ -82,11 +82,13 @@ curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets
 # for a more readable output (requires jq)
 curl -H 'X-Tenant-ID: acme' localhost:8000/api/tickets | jq
 
-# chat as acme in a conversation of your choosing; -N shows the events as they stream.
-# Send a second message with the same id and the model sees the first exchange.
-curl -N -H 'X-Tenant-ID: acme' -H 'Content-Type: application/json' localhost:8000/api/chat \
-  -d '{"tenantConversationId": "demo-1",
-       "message": {"role": "user", "parts": [{"type": "text", "text": "what can you do?"}]}}'
+# chat as acme: create a conversation, post to it (-N shows the events as they
+# stream), read it back. A second post to the same id lets the model see the first
+# exchange.
+CONVERSATION_ID=$(curl -s -X POST -H 'X-Tenant-ID: acme' localhost:8000/api/chat/new | jq -r .id)
+curl -N -H 'X-Tenant-ID: acme' -H 'Content-Type: application/json' localhost:8000/api/chat/$CONVERSATION_ID \
+  -d '{"message": {"role": "user", "parts": [{"type": "text", "text": "what can you do?"}]}}'
+curl -s -H 'X-Tenant-ID: acme' localhost:8000/api/chat/$CONVERSATION_ID | jq
 ```
 
 ## Authentication
@@ -117,18 +119,19 @@ descriptions carry prompt-injection payloads, each marked with a comment in
 ## Conversations
 
 A chat is a *tenant conversation*: a row bound to one tenant, plus its messages in
-order. The client chooses the conversation id (the frontend will generate one per
-chat) and sends only the newest message with each request; the server holds the whole
-history and resends it to the model every turn. Holding it server-side means the client
-cannot rewrite the past, for example by inserting a fabricated tool result or a
-message claiming an approval was granted; that matters for the approval flow that
-milestone 4 adds on top.
+order. Its lifecycle is three calls. `POST /api/chat/new` creates an empty conversation
+for the calling tenant and returns a server-generated id. `POST /api/chat/{id}` appends
+one user message and streams the reply. `GET /api/chat/{id}` returns the conversation
+with its stored messages. The client sends only the newest message with each post; the
+server holds the whole history and resends it to the model every turn. Holding it
+server-side means the client cannot rewrite the past, for example by inserting a
+fabricated tool result or a message claiming an approval was granted; that matters for
+the approval flow that milestone 4 adds on top.
 
-Every store method takes the tenant id, the same rule as for tickets. The first
-message with a new id creates the conversation for the calling tenant; an id that
-already exists under another tenant is answered with 404 and nothing is written. That
-response does tell the caller the id exists somewhere, which is accepted because ids
-are random UUIDs and nothing about the conversation is revealed.
+Every store method takes the tenant id, the same rule as for tickets. The id is never
+chosen by the client, so it cannot be picked to collide with another tenant's. Reading
+or posting to an id that does not exist or belongs to another tenant answers 404 with
+one wording for both, so the response does not confirm that the id exists.
 
 A turn is stored as the user message, then one assistant message once the model
 finishes, together with the opaque provider state the model needs back. If the
@@ -138,12 +141,12 @@ produced no text stores no assistant message.
 
 ## Architecture
 
-The request path for a chat: HTTP `POST /api/chat` with `X-Tenant-ID`,
+The request path for a chat message: HTTP `POST /api/chat/{id}` with `X-Tenant-ID`,
 `TenantAuthMiddleware` resolves the tenant before routing, the handler validates the
-body and settles conversation ownership through `TenantConversationStore` (404 before
-anything is stored or streamed), then `run_turn` in `agent/loop.py` appends the user
-message, loads the history, streams the model through the provider interface and stores
-the answer. `api/ui_stream.py` encodes the loop's events as the AI SDK UI message
+body and settles conversation ownership through `TenantConversationStore.get` (404
+before anything is stored or streamed), then `run_turn` in `agent/loop.py` appends the
+user message, loads the history, streams the model through the provider interface and
+stores the answer. `api/ui_stream.py` encodes the loop's events as the AI SDK UI message
 stream that the frontend will consume: server-sent events `start`, `text-start`,
 `text-delta`, `text-end`, `error`, `finish`, then `[DONE]`, under the header
 `x-vercel-ai-ui-message-stream: v1`.
@@ -168,9 +171,9 @@ ticket_agent/
 ├── agent/                 conversation storage and the loop that drives one turn
 │   ├── loop.py            run_turn: append the message, stream the model, store the answer
 │   ├── message_serialisation.py  history messages to stored rows and back
-│   └── tenant_conversations.py   TenantConversationStore: every method takes tenant_id
+│   └── tenant_conversations.py   TenantConversationStore: create, get, history, append
 ├── api/                   HTTP routes, one module per resource
-│   ├── chat.py            POST /api/chat, body validation and the ownership check
+│   ├── chat.py            POST /api/chat/new, GET and POST /api/chat/{id}
 │   ├── health.py          GET /api/health
 │   ├── tenants.py         GET /api/tenants, unauthenticated for the login screen
 │   ├── tickets.py         GET /api/tickets, the caller's tickets, to inspect the scoping
@@ -180,7 +183,7 @@ ticket_agent/
 │   ├── auth.py            tenant header, protected prefix, public paths, 401 message
 │   ├── chat.py            request rejections and the blocked-answer text
 │   ├── cli.py             exit code, `make init` hint, dump preview length
-│   ├── conversations.py   stored message roles, conversation id length, 404 message
+│   ├── conversations.py   stored message roles, id length, 404 message
 │   ├── environment.py     env prefix and .env file name
 │   ├── llm.py             default model, finish reasons, retry settings, signature key
 │   ├── seed.py            seeded tenant slugs and the target foreign ticket id
@@ -225,9 +228,19 @@ accepts one from outside so tests can pass a scripted model and run without a ke
 
 Endpoints:
 
-| Method | Path           | Auth | Purpose                                  |
-|--------|----------------|------|------------------------------------------|
-| GET    | `/api/health`  | no   | liveness and version                     |
-| GET    | `/api/tenants` | no   | the seeded tenants, for the login screen |
-| GET    | `/api/tickets` | yes  | the caller's tickets                     |
-| POST   | `/api/chat`    | yes  | one user message in, one streamed reply  |
+| Method | Path             | Auth | Purpose                                   |
+|--------|------------------|------|-------------------------------------------|
+| GET    | `/api/health`    | no   | liveness and version                      |
+| GET    | `/api/tenants`   | no   | the seeded tenants, for the login screen  |
+| GET    | `/api/tickets`   | yes  | the caller's tickets                      |
+| POST   | `/api/chat/new`  | yes | create a conversation, returns its id     |
+| GET    | `/api/chat/{id}` | yes | the conversation with its stored messages |
+| POST   | `/api/chat/{id}` | yes | one user message in, one streamed reply   |
+
+## Known caveats
+
+- Timestamps are not uniformly timezone-marked. A row returned straight after it is
+  created carries a `Z` suffix, while the same row read back from SQLite does not,
+  because SQLite stores no timezone and SQLAlchemy returns a naive value. Every stored
+  time is UTC either way. This is left as is for the purposes of the task; a real
+  service would normalise on the way out of the database.
