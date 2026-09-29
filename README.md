@@ -46,10 +46,10 @@ The variable is read under its plain name, without the `TICKET_AGENT_` prefix, b
 that is the name Google's SDK and documentation use. The free tier has per-minute and
 per-day request limits, and some models answer "high demand" for minutes at a time.
 The adapter retries such transient errors a few times with backoff and then reports a
-provider error, not a crash. The default model is `gemini-3.6-flash` because the
-newer `gemini-3.8-flash` was throttled for most of development; set
-`TICKET_AGENT_GEMINI_MODEL_ID` to try another. `gemini-2.5-flash` is no longer offered to
-new keys.
+provider error, not a crash. The default model is `gemini-3.5-flash-lite`, the tier
+with the largest free quota: one chat turn with tools is several requests, and the
+larger Flash models ran into their per-day limit or were throttled during development.
+Set `TICKET_AGENT_GEMINI_MODEL_ID` to try another, for example `gemini-3.6-flash`.
 
 ### Environment variables
 
@@ -62,7 +62,7 @@ directory (see [`.env.example`](.env.example)).
 | `TICKET_AGENT_HOST`          | `127.0.0.1`       | Interface the API server binds to         |
 | `TICKET_AGENT_PORT`          | `8000`            | Port the API server listens on            |
 | `GEMINI_API_KEY`             | unset             | Google AI Studio key; required for model calls |
-| `TICKET_AGENT_GEMINI_MODEL_ID` | `gemini-3.6-flash` | Gemini model every turn is sent to      |
+| `TICKET_AGENT_GEMINI_MODEL_ID` | `gemini-3.5-flash-lite` | Gemini model every turn is sent to |
 | `TICKET_AGENT_MAX_TOOL_ROUNDS` | `8`               | Model calls per request; bounds runaway tool use |
 
 ## Commands

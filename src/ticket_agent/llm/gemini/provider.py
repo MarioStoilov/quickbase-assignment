@@ -37,7 +37,7 @@ class GeminiProvider:
 
         Args:
             api_key: Google AI Studio key.
-            model_id: Gemini model id, e.g. `gemini-3.6-flash`.
+            model_id: Gemini model id, e.g. `gemini-3.5-flash-lite`.
         """
         self._client = genai.Client(api_key=api_key)
         self._model_id = model_id
