@@ -1,6 +1,6 @@
 # Every backend target runs through uv so the project's locked environment is used;
 # every frontend target runs npm inside `frontend/`. The two are separate services.
-.PHONY: install lint format init reset-db seed db-dump llm-probe run run-all frontend frontend-dev frontend-build
+.PHONY: install lint format test init reset-db seed db-dump llm-probe run run-all frontend frontend-dev frontend-build
 
 # Create the backend virtual environment with the locked dependencies, and install the
 # frontend's locked dependencies.
@@ -20,6 +20,11 @@ format:
 	uv run ruff format .
 	uv run ruff check --fix .
 	cd frontend && npm run format
+
+# Run the backend test suite with line coverage; fails below the threshold set in
+# pyproject.toml. Needs no network and no API key.
+test:
+	uv run pytest --cov --cov-report=term-missing
 
 # Create the database schema and load the seed data. Refuses an existing schema.
 init:
