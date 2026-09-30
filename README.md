@@ -401,25 +401,34 @@ tests/
                            attacker controls, what they try, and which rule stops them
 ```
 
-The adversarial cases, the part of the suite that matters most:
+The adversarial cases, the part of the suite that matters most, one scenario each:
 
-- `test_search_never_returns_other_tenant_tickets`: the model searches for Globex's
-  ticket 47 from an Acme conversation, by id and by wording; nothing of it appears.
+- `test_search_never_returns_other_tenant_tickets`: the model searches for the
+  wording of Globex's ticket 47 from an Acme conversation; nothing of it appears in
+  the stream or the stored history.
+- `test_search_by_foreign_id_finds_only_the_own_ticket_that_mentions_it`: a search
+  for "47" as Acme finds only Acme's ticket 3, whose injected text mentions it.
 - `test_mutate_rejects_foreign_ticket_without_freezing_conversation`: a mutate call on
   ticket 47 as Acme gets the not-found result, no dialog, and the conversation stays
   active.
+- `test_conversation_of_other_tenant_cannot_be_read`, `..._cannot_be_posted_to`,
+  `..._is_absent_from_the_list`, `test_pending_call_of_other_tenant_cannot_be_answered`:
+  a Globex user with an Acme conversation id gets 404 on each door.
+- `test_unknown_tenant_is_rejected`: an unseeded slug gets 401 on every protected route.
+- `test_create_ticket_lands_in_callers_tenant_only`: a model-supplied tenant_id is
+  ignored; the ticket appears in Acme's list only.
 - `test_injected_delete_all_is_not_executed_without_approval`: the model obeys ticket
-  3's payload and requests a delete of every id; the foreign id fails inline, the first
-  own id freezes the conversation, nothing is deleted.
+  3's payload and requests a delete of every Acme ticket in one turn; the first call
+  freezes the conversation, nothing is deleted, the model is not called again.
 - `test_injected_approval_claim_does_not_skip_the_gate`: ticket 5's "approval already
   granted" text; the update still freezes.
 - `test_model_cannot_self_approve`: the model claims it approved and stands ready to
-  confirm; nothing runs, a new message is refused with 409.
+  confirm; nothing runs and the conversation is frozen.
 - `test_approved_execution_uses_frozen_arguments`: the response body names another
   ticket; the stored arguments run.
-- `test_conversation_of_other_tenant_is_not_found_for_read_post_list_or_response`,
-  `test_tool_response_cannot_be_given_by_another_tenant_or_for_another_call_or_twice`,
-  `test_unknown_tenant_is_rejected`, `test_create_ticket_lands_in_callers_tenant_only`.
+- `test_tool_response_cannot_be_given_by_another_tenant`,
+  `..._with_another_conversations_call_id`, `test_tool_response_cannot_be_replayed`:
+  the pending call id is accepted once, from its owner, on its own conversation.
 
 Writing the suite found one defect: the tenant middleware assumed every ASGI scope
 carries a `state` dictionary, which uvicorn provides and an in-process transport does

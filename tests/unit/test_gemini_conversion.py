@@ -1,5 +1,6 @@
 """History and declarations become Gemini SDK types, signatures included."""
 
+import pytest
 from google.genai import types
 
 from tests.constants.provider import RAW_SIGNATURE
@@ -95,15 +96,23 @@ def test_assistant_message_without_text_has_only_call_parts() -> None:
     assert contents[0].parts[0].function_call is not None
 
 
-def test_signature_state_round_trip_and_empty_cases() -> None:
-    """Bytes become base64 state and back; empty or absent signatures give empty state."""
+def test_signature_state_round_trip() -> None:
+    """Bytes become base64 state and decode back to the same bytes."""
     state = state_from_signature(RAW_SIGNATURE)
 
     assert signature_from_state(state) == RAW_SIGNATURE
-    assert state_from_signature(None) == {}
-    assert state_from_signature(b"") == {}
-    assert signature_from_state({}) is None
-    assert signature_from_state({"thought_signature": ""}) is None
+
+
+@pytest.mark.parametrize("thought_signature", [None, b""])
+def test_missing_signature_gives_empty_state(thought_signature: bytes | None) -> None:
+    """An absent or empty signature produces no state at all."""
+    assert state_from_signature(thought_signature) == {}
+
+
+@pytest.mark.parametrize("provider_state", [{}, {"thought_signature": ""}])
+def test_state_without_signature_decodes_to_none(provider_state: dict) -> None:
+    """State that holds no signature decodes to None."""
+    assert signature_from_state(provider_state) is None
 
 
 def test_part_types_are_the_sdk_types() -> None:

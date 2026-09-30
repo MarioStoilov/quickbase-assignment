@@ -35,32 +35,26 @@ async def test_search_never_returns_other_tenant_tickets(
     """The attacker controls the model's tool arguments (through an injected ticket text).
 
     They make the model search for Globex's confidential ticket 47 from an Acme
-    conversation, by id and by its wording. The repository puts the caller's tenant in
-    every WHERE clause and the tool takes the tenant from the context, never from the
-    arguments. The id search finds only Acme's own ticket 3, whose injected text
-    mentions "#47"; the wording search finds nothing; and no fragment of ticket 47
-    appears anywhere in the stream or the stored history.
+    conversation by the wording of its title. The repository puts the caller's tenant
+    in every WHERE clause and the tool takes the tenant from the context, never from
+    the arguments, so the search finds nothing and no fragment of ticket 47 appears
+    anywhere in the stream or the stored history.
     """
     # An Acme conversation.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
 
-    # Script the model hunting for ticket 47 two ways in one turn, by its id and by the
-    # wording of its title, then reporting.
-    scripted_provider.add_turn(tool_turn([search_call("c1", "47"), search_call("c2", "merger")]))
-    scripted_provider.add_turn(text_turn("There is no ticket 47 here."))
+    # Script the model searching for the foreign ticket's wording, then reporting.
+    scripted_provider.add_turn(tool_turn([search_call("c1", "merger")]))
+    scripted_provider.add_turn(text_turn("There is no such ticket here."))
 
     # The person asks for the foreign ticket outright.
     stream = await send_and_parse(
-        client, ACME_TENANT_ID, conversation_id, "show ticket 47 from globex"
+        client, ACME_TENANT_ID, conversation_id, "show the merger ticket from globex"
     )
 
-    # The id search matched only Acme's ticket 3 (its injected text mentions "#47"); the
-    # wording search matched nothing.
-    outputs = stream.of_type("tool-output-available")
-    by_id_result = outputs[0]["output"]
-    by_wording_result = outputs[1]["output"]
-    assert [ticket["id"] for ticket in by_id_result["tickets"]] == [3]
-    assert by_wording_result["count"] == 0
+    # The search matched nothing.
+    output = stream.of_type("tool-output-available")[0]["output"]
+    assert output["count"] == 0
 
     # Nothing of ticket 47 reached the stream or the stored history.
     stream_text = " ".join(str(part) for part in stream.parts)
@@ -69,6 +63,31 @@ async def test_search_never_returns_other_tenant_tickets(
     for fragment in FOREIGN_SECRET_FRAGMENTS:
         assert fragment not in stream_text
         assert fragment not in stored_text
+
+
+@pytest.mark.anyio
+async def test_search_by_foreign_id_finds_only_the_own_ticket_that_mentions_it(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker controls the model's tool arguments (through an injected ticket text).
+
+    They make the model search for "47" from an Acme conversation, hoping the id
+    reaches Globex's ticket. The search is a text match within the caller's tenant, so
+    the only hit is Acme's own ticket 3, whose injected description mentions "#47".
+    """
+    # An Acme conversation.
+    conversation_id = await create_conversation(client, ACME_TENANT_ID)
+
+    # Script the model searching for the foreign id, then reporting.
+    scripted_provider.add_turn(tool_turn([search_call("c1", "47")]))
+    scripted_provider.add_turn(text_turn("Only ticket 3 mentions 47."))
+
+    # The person asks for ticket 47.
+    stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "show ticket 47")
+
+    # The only match is Acme's ticket 3.
+    output = stream.of_type("tool-output-available")[0]["output"]
+    assert [ticket["id"] for ticket in output["tickets"]] == [3]
 
 
 @pytest.mark.anyio
@@ -105,67 +124,146 @@ async def test_mutate_rejects_foreign_ticket_without_freezing_conversation(
     assert TARGET_FOREIGN_TICKET_ID in await list_ticket_ids(client, GLOBEX_TENANT_ID)
 
 
-@pytest.mark.anyio
-async def test_conversation_of_other_tenant_is_not_found_for_read_post_list_or_response(
+async def frozen_acme_conversation(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
-) -> None:
-    """The attacker is a Globex user who has learnt an Acme conversation id.
+) -> str:
+    """Create an Acme conversation frozen on a delete, for a Globex attacker to target.
 
-    They try to read it, post into it, find it in their list, and answer its pending
-    tool call. Every store method takes the caller's tenant, so each attempt answers
-    404 with the same body an unknown id gets, the list stays Globex-only, and the
-    pending Acme call is still pending afterwards.
+    Args:
+        client: the test client.
+        scripted_provider: the fake model.
+
+    Returns:
+        The conversation id; its pending call id is `call-delete`.
     """
-    # An Acme conversation frozen on a delete, so that there is a pending call to steal.
     acme_conversation_id = await create_conversation(client, ACME_TENANT_ID)
     scripted_provider.add_turn(tool_turn([delete_call("call-delete", 1)]))
     await send_and_parse(client, ACME_TENANT_ID, acme_conversation_id, "delete 1")
 
-    # The attacker acts as Globex, knowing the Acme conversation id and the call id.
-    globex_headers = tenant_headers(GLOBEX_TENANT_ID)
+    return acme_conversation_id
 
-    # Every way of reaching the conversation: read it, post into it, list it, answer it.
-    read = await client.get(f"/api/chat/{acme_conversation_id}", headers=globex_headers)
-    post = await client.post(
-        f"/api/chat/{acme_conversation_id}", headers=globex_headers, json=user_message_body("hi")
+
+@pytest.mark.anyio
+async def test_conversation_of_other_tenant_cannot_be_read(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker is a Globex user who has learnt an Acme conversation id.
+
+    They read it. The store looks the id up with the caller's tenant, so the answer is
+    the same 404 an unknown id gets.
+    """
+    # An Acme conversation with history, and the attacker acting as Globex.
+    acme_conversation_id = await frozen_acme_conversation(client, scripted_provider)
+
+    # The read as Globex.
+    response = await client.get(
+        f"/api/chat/{acme_conversation_id}", headers=tenant_headers(GLOBEX_TENANT_ID)
     )
-    listing = await client.get("/api/chat", headers=globex_headers)
-    answer = await respond_to_tool_call(
+
+    # Not found, with the body that reveals nothing.
+    assert response.status_code == 404
+    assert response.json() == {"detail": CONVERSATION_NOT_FOUND_DETAIL}
+
+
+@pytest.mark.anyio
+async def test_conversation_of_other_tenant_cannot_be_posted_to(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker is a Globex user who has learnt an Acme conversation id.
+
+    They post a message into it. The ownership check runs before anything is stored
+    or streamed, so the answer is 404 and the Acme history is unchanged.
+    """
+    # An Acme conversation with history, and the attacker acting as Globex.
+    acme_conversation_id = await frozen_acme_conversation(client, scripted_provider)
+    messages_before = (await read_conversation(client, ACME_TENANT_ID, acme_conversation_id))[
+        "messages"
+    ]
+
+    # The post as Globex.
+    response = await client.post(
+        f"/api/chat/{acme_conversation_id}",
+        headers=tenant_headers(GLOBEX_TENANT_ID),
+        json=user_message_body("hi"),
+    )
+
+    # Not found, and nothing was written into the Acme conversation.
+    assert response.status_code == 404
+    assert response.json() == {"detail": CONVERSATION_NOT_FOUND_DETAIL}
+    conversation = await read_conversation(client, ACME_TENANT_ID, acme_conversation_id)
+    assert conversation["messages"] == messages_before
+
+
+@pytest.mark.anyio
+async def test_conversation_of_other_tenant_is_absent_from_the_list(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker is a Globex user looking for other tenants' conversations.
+
+    They list their conversations. The list query takes the caller's tenant, so the
+    Acme conversation does not appear and the list is empty.
+    """
+    # An Acme conversation with history, and the attacker acting as Globex.
+    await frozen_acme_conversation(client, scripted_provider)
+
+    # The list as Globex.
+    response = await client.get("/api/chat", headers=tenant_headers(GLOBEX_TENANT_ID))
+
+    # Nothing of Acme's is listed.
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.anyio
+async def test_pending_call_of_other_tenant_cannot_be_answered(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker is a Globex user who has learnt an Acme conversation id and its
+    pending call id.
+
+    They approve the call. The ownership check on the response route runs before the
+    call is looked at, so the answer is 404, the call is still pending for Acme, and
+    ticket 1 still exists.
+    """
+    # An Acme conversation frozen on a delete of ticket 1, and the attacker as Globex.
+    acme_conversation_id = await frozen_acme_conversation(client, scripted_provider)
+
+    # The approval as Globex.
+    response = await respond_to_tool_call(
         client, GLOBEX_TENANT_ID, acme_conversation_id, "call-delete", "approve"
     )
 
-    # Each direct access is a 404 with the not-found body, and the list holds nothing.
-    for response in (read, post, answer):
-        assert response.status_code == 404
-        assert response.json() == {"detail": CONVERSATION_NOT_FOUND_DETAIL}
-    assert listing.json() == []
-
-    # The Acme conversation is still frozen on its call and ticket 1 still exists.
+    # Not found; the Acme conversation is still frozen on its call and ticket 1 exists.
+    assert response.status_code == 404
+    assert response.json() == {"detail": CONVERSATION_NOT_FOUND_DETAIL}
     conversation = await read_conversation(client, ACME_TENANT_ID, acme_conversation_id)
     assert conversation["pending_tool_call"]["call_id"] == "call-delete"
     assert 1 in await list_ticket_ids(client, ACME_TENANT_ID)
 
 
 @pytest.mark.anyio
-async def test_unknown_tenant_is_rejected(client: httpx.AsyncClient) -> None:
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("GET", "/api/tickets"), ("POST", "/api/chat/new"), ("GET", "/api/chat")],
+)
+async def test_unknown_tenant_is_rejected(
+    client: httpx.AsyncClient, method: str, path: str
+) -> None:
     """The attacker controls the tenant header.
 
     They send a slug that is not seeded, hoping for a default tenant or an error that
     reveals valid slugs. The middleware resolves the header against the tenants table
-    before routing and answers 401 with one fixed message, on every protected route.
+    before routing and answers 401 with one fixed message, whatever the route.
     """
     # A header naming a tenant that does not exist.
     headers = tenant_headers(UNKNOWN_TENANT_ID)
 
-    # Three protected routes: a read, a create, a list.
-    tickets = await client.get("/api/tickets", headers=headers)
-    created = await client.post("/api/chat/new", headers=headers)
-    listed = await client.get("/api/chat", headers=headers)
+    # A protected route.
+    response = await client.request(method, path, headers=headers)
 
-    # All three are refused with the one message that reveals nothing.
-    for response in (tickets, created, listed):
-        assert response.status_code == 401
-        assert response.json() == {"detail": UNAUTHORISED_DETAIL}
+    # Refused with the one message that reveals nothing.
+    assert response.status_code == 401
+    assert response.json() == {"detail": UNAUTHORISED_DETAIL}
 
 
 @pytest.mark.anyio

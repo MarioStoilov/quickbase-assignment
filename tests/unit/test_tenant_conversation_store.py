@@ -55,20 +55,24 @@ def test_get_reports_a_foreign_conversation_like_a_missing_one(
     assert foreign_text == missing_text
 
 
-def test_list_all_is_per_tenant_and_newest_first(store: TenantConversationStore) -> None:
-    """Acme's list holds Acme's conversations, newest first, and none of Globex's."""
+def test_list_all_is_newest_first(store: TenantConversationStore) -> None:
+    """Two conversations come back with the later one first."""
     first = store.create(ACME_TENANT_ID)
     second = store.create(ACME_TENANT_ID)
+
+    listed_ids = [conversation.id for conversation in store.list_all(ACME_TENANT_ID)]
+
+    assert listed_ids == [second.id, first.id]
+
+
+def test_list_all_excludes_other_tenants(store: TenantConversationStore) -> None:
+    """Globex's conversation never appears in Acme's list."""
+    acme_conversation = store.create(ACME_TENANT_ID)
     store.create(GLOBEX_TENANT_ID)
 
-    acme_conversations = store.list_all(ACME_TENANT_ID)
-    listed_ids = [conversation.id for conversation in acme_conversations]
+    listed_ids = [conversation.id for conversation in store.list_all(ACME_TENANT_ID)]
 
-    assert set(listed_ids) == {first.id, second.id}
-    assert (
-        listed_ids[0] == second.id
-        or acme_conversations[0].created_at >= acme_conversations[1].created_at
-    )
+    assert listed_ids == [acme_conversation.id]
 
 
 def test_append_and_history_round_trip_every_message_kind(
@@ -105,21 +109,38 @@ def test_append_to_a_foreign_conversation_is_refused(store: TenantConversationSt
     assert store.history(GLOBEX_TENANT_ID, globex_conversation.id) == []
 
 
-def test_freeze_and_unfreeze_change_status_and_pending_call(
-    store: TenantConversationStore,
-) -> None:
-    """Freezing records the call id and the waiting status; unfreezing clears both."""
+def test_freeze_records_the_call_and_the_waiting_status(store: TenantConversationStore) -> None:
+    """Freezing stores the call id and switches the status."""
     conversation = store.create(ACME_TENANT_ID)
 
     store.freeze_on_tool_call(ACME_TENANT_ID, conversation.id, "call-9")
+
     frozen = store.get(ACME_TENANT_ID, conversation.id)
     assert frozen.status == CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
     assert frozen.pending_tool_call_id == "call-9"
 
+
+def test_unfreeze_clears_the_call_and_restores_the_active_status(
+    store: TenantConversationStore,
+) -> None:
+    """Unfreezing forgets the call id and makes the conversation active again."""
+    conversation = store.create(ACME_TENANT_ID)
+    store.freeze_on_tool_call(ACME_TENANT_ID, conversation.id, "call-9")
+
     store.unfreeze(ACME_TENANT_ID, conversation.id)
+
     released = store.get(ACME_TENANT_ID, conversation.id)
     assert released.status == CONVERSATION_STATUS_ACTIVE
     assert released.pending_tool_call_id is None
+
+
+def test_pending_tool_call_is_none_while_active(store: TenantConversationStore) -> None:
+    """A conversation that is not frozen has no pending call, even with calls stored."""
+    conversation = store.create(ACME_TENANT_ID)
+    call = ToolCall(call_id="call-2", tool_name="mutate_ticket", arguments={"ticket_id": 1})
+    store.append(ACME_TENANT_ID, conversation.id, AssistantMessage(tool_calls=(call,)))
+
+    assert store.pending_tool_call(ACME_TENANT_ID, conversation.id) is None
 
 
 def test_pending_tool_call_returns_the_stored_call_with_its_arguments(
@@ -131,10 +152,8 @@ def test_pending_tool_call_returns_the_stored_call_with_its_arguments(
         call_id="call-2", tool_name="mutate_ticket", arguments={"ticket_id": 1, "action": "delete"}
     )
     store.append(ACME_TENANT_ID, conversation.id, AssistantMessage(tool_calls=(call,)))
-
-    assert store.pending_tool_call(ACME_TENANT_ID, conversation.id) is None
-
     store.freeze_on_tool_call(ACME_TENANT_ID, conversation.id, "call-2")
+
     assert store.pending_tool_call(ACME_TENANT_ID, conversation.id) == call
 
 

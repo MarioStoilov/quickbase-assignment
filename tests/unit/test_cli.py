@@ -80,19 +80,30 @@ def test_init_with_reset_drops_and_reseeds(empty_engine: Engine, settings: Setti
     assert ticket_count_of(empty_engine) == len(SEED_TICKETS)
 
 
-def test_seed_refuses_a_missing_schema_and_a_seeded_database(
+def test_seed_refuses_a_missing_schema(
     empty_engine: Engine, settings: Settings, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """seed needs the schema and refuses to double the data."""
-    with pytest.raises(SystemExit):
+    """seed needs the schema and names init when it is absent."""
+    with pytest.raises(SystemExit) as exit_info:
         cli.run_seed(empty_engine, settings)
+
+    assert exit_info.value.code == EXIT_CODE_REFUSED
     assert "has no schema" in capsys.readouterr().err
 
+
+def test_seed_refuses_a_database_that_already_holds_tickets(
+    empty_engine: Engine, settings: Settings, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """seed will not double the data."""
     create_schema(empty_engine)
     cli.run_seed(empty_engine, settings)
-    with pytest.raises(SystemExit):
+
+    with pytest.raises(SystemExit) as exit_info:
         cli.run_seed(empty_engine, settings)
+
+    assert exit_info.value.code == EXIT_CODE_REFUSED
     assert "already holds" in capsys.readouterr().err
+    assert ticket_count_of(empty_engine) == len(SEED_TICKETS)
 
 
 def test_count_tickets_is_zero_on_an_empty_schema(empty_engine: Engine) -> None:

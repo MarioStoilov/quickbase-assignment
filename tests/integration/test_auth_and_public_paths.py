@@ -10,15 +10,21 @@ from ticket_agent.constants.auth import UNAUTHORISED_DETAIL
 
 
 @pytest.mark.anyio
-async def test_health_and_tenants_need_no_header(client: httpx.AsyncClient) -> None:
-    """The two public paths answer without a tenant and the tenant list is the seed."""
-    health_response = await client.get("/api/health")
-    tenants_response = await client.get("/api/tenants")
+async def test_health_needs_no_header(client: httpx.AsyncClient) -> None:
+    """The liveness path answers without a tenant."""
+    response = await client.get("/api/health")
 
-    assert health_response.status_code == 200
-    assert health_response.json() == {"status": "ok", "version": __version__}
-    assert tenants_response.status_code == 200
-    tenant_ids = [tenant["id"] for tenant in tenants_response.json()]
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok", "version": __version__}
+
+
+@pytest.mark.anyio
+async def test_tenant_list_needs_no_header_and_is_the_seed(client: httpx.AsyncClient) -> None:
+    """The login screen's tenant list answers without a tenant and holds the seed."""
+    response = await client.get("/api/tenants")
+
+    assert response.status_code == 200
+    tenant_ids = [tenant["id"] for tenant in response.json()]
     assert tenant_ids == ["acme", "globex"]
 
 
@@ -35,16 +41,15 @@ async def test_protected_paths_without_header_answer_401(
 
 
 @pytest.mark.anyio
-async def test_unknown_and_blank_tenants_get_the_same_401_as_a_missing_header(
-    client: httpx.AsyncClient,
+@pytest.mark.parametrize("header_value", [UNKNOWN_TENANT_ID, "   "])
+async def test_unknown_or_blank_tenant_gets_the_same_401_as_a_missing_header(
+    client: httpx.AsyncClient, header_value: str
 ) -> None:
-    """An unknown slug and a blank header are refused with the one shared message."""
-    unknown_response = await client.get("/api/tickets", headers=tenant_headers(UNKNOWN_TENANT_ID))
-    blank_response = await client.get("/api/tickets", headers=tenant_headers("   "))
+    """An unknown slug or a blank header is refused with the one shared message."""
+    response = await client.get("/api/tickets", headers=tenant_headers(header_value))
 
-    assert unknown_response.status_code == 401
-    assert blank_response.status_code == 401
-    assert unknown_response.json() == blank_response.json()
+    assert response.status_code == 401
+    assert response.json() == {"detail": UNAUTHORISED_DETAIL}
 
 
 @pytest.mark.anyio

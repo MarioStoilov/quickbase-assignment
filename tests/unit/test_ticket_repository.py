@@ -55,15 +55,18 @@ def test_list_for_tenant_returns_only_that_tenants_tickets(repository: TicketRep
     assert ids_of(globex_tickets) == GLOBEX_TICKET_IDS
 
 
-def test_search_matches_title_and_description_case_insensitively(
-    repository: TicketRepository,
-) -> None:
-    """A query is matched as a substring of the title or the description, ignoring case."""
-    by_title = repository.search(ACME_TENANT_ID, "INVOICE")
-    by_description = repository.search(ACME_TENANT_ID, "mobile app")
+def test_search_matches_the_title_case_insensitively(repository: TicketRepository) -> None:
+    """A query is matched as a substring of the title, ignoring case."""
+    matches = repository.search(ACME_TENANT_ID, "INVOICE")
 
-    assert ids_of(by_title) == [2]
-    assert ids_of(by_description) == [1]
+    assert ids_of(matches) == [2]
+
+
+def test_search_matches_the_description(repository: TicketRepository) -> None:
+    """A query is matched as a substring of the description too."""
+    matches = repository.search(ACME_TENANT_ID, "mobile app")
+
+    assert ids_of(matches) == [1]
 
 
 def test_search_with_blank_query_returns_every_ticket_of_the_tenant(

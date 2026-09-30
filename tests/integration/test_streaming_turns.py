@@ -56,15 +56,12 @@ async def test_text_turn_streams_one_block_and_stores_both_messages(
 
 
 @pytest.mark.anyio
-async def test_search_turn_runs_the_tool_and_returns_the_state_to_the_model(
+async def test_search_turn_runs_the_tool_and_streams_its_result(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """The call and its Acme-only result stream, then the model's report; state round-trips."""
+    """The call and its Acme-only result stream, then the model's report."""
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
-    call = ToolCallRequest(
-        call_id="c1", tool_name="search_tickets", arguments={"query": ""}, provider_state=CALL_STATE
-    )
-    scripted_provider.add_turn(tool_turn([call], provider_state=TURN_STATE))
+    scripted_provider.add_turn(tool_turn([search_call("c1", "")]))
     scripted_provider.add_turn(text_turn("You have six tickets."))
 
     stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "list them")
@@ -80,6 +77,22 @@ async def test_search_turn_runs_the_tool_and_returns_the_state_to_the_model(
     ]
     output = stream.of_type("tool-output-available")[0]["output"]
     assert [ticket["id"] for ticket in output["tickets"]] == [1, 2, 3, 4, 5, 6]
+    assert stream.text() == "You have six tickets."
+
+
+@pytest.mark.anyio
+async def test_provider_state_comes_back_to_the_model_with_the_tool_result(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The opaque state on the call and on the turn is resent unchanged on the next call."""
+    conversation_id = await create_conversation(client, ACME_TENANT_ID)
+    call = ToolCallRequest(
+        call_id="c1", tool_name="search_tickets", arguments={"query": ""}, provider_state=CALL_STATE
+    )
+    scripted_provider.add_turn(tool_turn([call], provider_state=TURN_STATE))
+    scripted_provider.add_turn(text_turn("Done."))
+
+    await send_and_parse(client, ACME_TENANT_ID, conversation_id, "list them")
 
     second_call_history = scripted_provider.calls[1].history
     assert isinstance(second_call_history[0], UserMessage)
@@ -88,9 +101,6 @@ async def test_search_turn_runs_the_tool_and_returns_the_state_to_the_model(
     assert assistant_message.tool_calls[0].provider_state == CALL_STATE
     assert assistant_message.provider_state == TURN_STATE
     assert isinstance(second_call_history[2], ToolResultMessage)
-    assert (
-        scripted_provider.calls[1].tool_declarations == scripted_provider.calls[0].tool_declarations
-    )
 
 
 @pytest.mark.anyio
@@ -156,25 +166,38 @@ async def test_a_malformed_body_is_422(client: httpx.AsyncClient) -> None:
 
 
 @pytest.mark.anyio
-async def test_provider_failure_mid_stream_keeps_the_text_and_stays_active(
+async def test_provider_failure_mid_stream_keeps_the_text_streamed_so_far(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """Text before the failure is streamed and stored, an error part follows, and the
-    next turn works."""
+    """Text before the failure is streamed and stored, then an error part, then finish."""
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
     scripted_provider.add_turn([TextDelta(text="Partial "), ModelProviderError("quota hit")])
+
+    stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "hi")
+
+    assert stream.text() == "Partial "
+    assert stream.of_type("error")[0]["errorText"] == "quota hit"
+    assert stream.types()[-1] == "finish"
+    conversation = await read_conversation(client, ACME_TENANT_ID, conversation_id)
+    texts = [message["content"]["text"] for message in conversation["messages"]]
+    assert texts == ["hi", "Partial "]
+
+
+@pytest.mark.anyio
+async def test_conversation_stays_usable_after_a_provider_failure(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """A failed turn leaves the conversation active, so the next message works."""
+    conversation_id = await create_conversation(client, ACME_TENANT_ID)
+    scripted_provider.add_turn(ModelProviderError("down"))
+    await send_and_parse(client, ACME_TENANT_ID, conversation_id, "hi")
     scripted_provider.add_turn(text_turn("Back again."))
 
-    failed_stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "hi")
     recovered_stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "again")
 
-    assert failed_stream.text() == "Partial "
-    assert failed_stream.of_type("error")[0]["errorText"] == "quota hit"
-    assert failed_stream.types()[-1] == "finish"
     assert recovered_stream.text() == "Back again."
     conversation = await read_conversation(client, ACME_TENANT_ID, conversation_id)
-    texts = [message["content"].get("text") for message in conversation["messages"]]
-    assert texts == ["hi", "Partial ", "again", "Back again."]
+    assert conversation["status"] == CONVERSATION_STATUS_ACTIVE
 
 
 @pytest.mark.anyio

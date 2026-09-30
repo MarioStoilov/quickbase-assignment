@@ -148,32 +148,53 @@ async def test_reject_leaves_the_ticket_and_tells_the_model(
 
 
 @pytest.mark.anyio
-async def test_wrong_call_id_repeated_answer_and_bad_option_are_refused(
+async def test_an_answer_for_a_call_that_is_not_pending_is_409(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """409 for an id that is not pending, 400 for an option not offered, 409 for a replay."""
+    """A call id other than the stored pending one is refused and nothing runs."""
     conversation_id, _ = await freeze_on_delete(client, scripted_provider, 2)
 
-    wrong_id = await respond_to_tool_call(
+    response = await respond_to_tool_call(
         client, ACME_TENANT_ID, conversation_id, "call-other", "approve"
     )
-    bad_option = await respond_to_tool_call(
-        client, ACME_TENANT_ID, conversation_id, "call-delete", "maybe"
-    )
-    assert wrong_id.status_code == 409
-    assert wrong_id.json() == {"detail": NO_SUCH_PENDING_CALL_DETAIL}
-    assert bad_option.status_code == 400
-    assert bad_option.json() == {"detail": INVALID_RESPONSE_OPTION_DETAIL}
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": NO_SUCH_PENDING_CALL_DETAIL}
     assert 2 in await list_ticket_ids(client, ACME_TENANT_ID)
 
+
+@pytest.mark.anyio
+async def test_an_option_the_tool_does_not_offer_is_400(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """An option outside the tool's response options is refused and nothing runs."""
+    conversation_id, _ = await freeze_on_delete(client, scripted_provider, 2)
+
+    response = await respond_to_tool_call(
+        client, ACME_TENANT_ID, conversation_id, "call-delete", "maybe"
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": INVALID_RESPONSE_OPTION_DETAIL}
+    assert 2 in await list_ticket_ids(client, ACME_TENANT_ID)
+
+
+@pytest.mark.anyio
+async def test_a_second_answer_to_an_answered_call_is_409(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """Once answered, the call is no longer pending, so a replay is refused."""
+    conversation_id, _ = await freeze_on_delete(client, scripted_provider, 2)
     scripted_provider.add_turn(text_turn("Done."))
     first_answer = await respond_to_tool_call(
         client, ACME_TENANT_ID, conversation_id, "call-delete", "approve"
     )
+    assert first_answer.status_code == 200
+
     replay = await respond_to_tool_call(
         client, ACME_TENANT_ID, conversation_id, "call-delete", "approve"
     )
-    assert first_answer.status_code == 200
+
     assert replay.status_code == 409
     assert len(scripted_provider.calls) == 2
 

@@ -18,52 +18,102 @@ from ticket_agent.constants.conversations import (
 from ticket_agent.constants.seed import ACME_TENANT_ID, GLOBEX_TENANT_ID
 
 
+async def frozen_on_delete(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider, call_id: str, ticket_id: int
+) -> str:
+    """Create an Acme conversation frozen on a delete of `ticket_id` under `call_id`.
+
+    Args:
+        client: the test client.
+        scripted_provider: the fake model.
+        call_id: the id the scripted model gives the call.
+        ticket_id: the Acme ticket to delete.
+
+    Returns:
+        The conversation id.
+    """
+    conversation_id = await create_conversation(client, ACME_TENANT_ID)
+    scripted_provider.add_turn(tool_turn([delete_call(call_id, ticket_id)]))
+    await send_and_parse(client, ACME_TENANT_ID, conversation_id, f"delete {ticket_id}")
+
+    return conversation_id
+
+
 @pytest.mark.anyio
-async def test_tool_response_cannot_be_given_by_another_tenant_or_for_another_call_or_twice(
+async def test_tool_response_cannot_be_given_by_another_tenant(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """The attacker knows an Acme conversation id and its pending call id.
+    """The attacker is a Globex user who knows an Acme conversation id and its pending
+    call id.
 
-    As Globex they try to approve it: 404, since the conversation is not theirs. As
-    Acme they try a call id from another conversation: 409, since only the stored
-    pending id is accepted. After the real approval they replay it: 409 again, since
-    the conversation is no longer frozen. The delete runs exactly once.
+    They approve the call as Globex. The conversation is looked up with the caller's
+    tenant before the call is considered, so the answer is 404 and the delete does
+    not run.
     """
-    # Two Acme conversations, each frozen on a delete of a different ticket, so that a
-    # genuine call id from one can be tried against the other.
-    first_id = await create_conversation(client, ACME_TENANT_ID)
-    second_id = await create_conversation(client, ACME_TENANT_ID)
-    scripted_provider.add_turn(tool_turn([delete_call("call-first", 1)]))
-    await send_and_parse(client, ACME_TENANT_ID, first_id, "delete 1")
-    scripted_provider.add_turn(tool_turn([delete_call("call-second", 2)]))
-    await send_and_parse(client, ACME_TENANT_ID, second_id, "delete 2")
+    # An Acme conversation frozen on a delete of ticket 1.
+    conversation_id = await frozen_on_delete(client, scripted_provider, "call-first", 1)
 
-    # As Globex, approve the first conversation's call; as Acme, approve the first
-    # conversation with the second conversation's call id.
-    by_globex = await respond_to_tool_call(
-        client, GLOBEX_TENANT_ID, first_id, "call-first", "approve"
+    # The approval as Globex.
+    response = await respond_to_tool_call(
+        client, GLOBEX_TENANT_ID, conversation_id, "call-first", "approve"
     )
-    other_call = await respond_to_tool_call(
+
+    # Not found, and ticket 1 is still there.
+    assert response.status_code == 404
+    assert response.json() == {"detail": CONVERSATION_NOT_FOUND_DETAIL}
+    assert 1 in await list_ticket_ids(client, ACME_TENANT_ID)
+
+
+@pytest.mark.anyio
+async def test_tool_response_cannot_be_given_with_another_conversations_call_id(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker is an Acme user who holds a genuine call id from one conversation.
+
+    They answer a different conversation with it. Only the call id stored as pending
+    on that conversation is accepted, so the answer is 409 and neither delete runs.
+    """
+    # Two Acme conversations, each frozen on its own delete.
+    first_id = await frozen_on_delete(client, scripted_provider, "call-first", 1)
+    await frozen_on_delete(client, scripted_provider, "call-second", 2)
+
+    # The first conversation answered with the second conversation's call id.
+    response = await respond_to_tool_call(
         client, ACME_TENANT_ID, first_id, "call-second", "approve"
     )
 
-    # The foreign tenant gets not-found, the wrong call id gets the pending-call
-    # refusal, and ticket 1 is still there.
-    assert by_globex.status_code == 404
-    assert by_globex.json() == {"detail": CONVERSATION_NOT_FOUND_DETAIL}
-    assert other_call.status_code == 409
-    assert other_call.json() == {"detail": NO_SUCH_PENDING_CALL_DETAIL}
-    assert 1 in await list_ticket_ids(client, ACME_TENANT_ID)
+    # Refused as no such pending call, and both tickets are still there.
+    assert response.status_code == 409
+    assert response.json() == {"detail": NO_SUCH_PENDING_CALL_DETAIL}
+    remaining_ids = await list_ticket_ids(client, ACME_TENANT_ID)
+    assert 1 in remaining_ids
+    assert 2 in remaining_ids
 
-    # The genuine approval by the owner, followed by a replay of the same answer.
+
+@pytest.mark.anyio
+async def test_tool_response_cannot_be_replayed(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker is an Acme user who resends an approval that already ran.
+
+    After the genuine approval the conversation is no longer frozen, so the replay is
+    refused with 409 and the delete ran exactly once.
+    """
+    # An Acme conversation frozen on a delete of ticket 1, and the model's report.
+    conversation_id = await frozen_on_delete(client, scripted_provider, "call-first", 1)
     scripted_provider.add_turn(text_turn("Deleted #1."))
-    genuine = await respond_to_tool_call(client, ACME_TENANT_ID, first_id, "call-first", "approve")
-    replay = await respond_to_tool_call(client, ACME_TENANT_ID, first_id, "call-first", "approve")
 
-    # The genuine answer ran the delete once; the replay was refused; ticket 2, pending
-    # in the other conversation, is untouched.
+    # The genuine approval, then the same answer again.
+    genuine = await respond_to_tool_call(
+        client, ACME_TENANT_ID, conversation_id, "call-first", "approve"
+    )
+    replay = await respond_to_tool_call(
+        client, ACME_TENANT_ID, conversation_id, "call-first", "approve"
+    )
+
+    # The genuine answer ran the delete; the replay was refused; the model was asked once.
     assert genuine.status_code == 200
     assert replay.status_code == 409
-    remaining_ids = await list_ticket_ids(client, ACME_TENANT_ID)
-    assert 1 not in remaining_ids
-    assert 2 in remaining_ids
+    assert replay.json() == {"detail": NO_SUCH_PENDING_CALL_DETAIL}
+    assert 1 not in await list_ticket_ids(client, ACME_TENANT_ID)
+    assert len(scripted_provider.calls) == 2

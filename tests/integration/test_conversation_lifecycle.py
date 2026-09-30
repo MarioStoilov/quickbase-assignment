@@ -67,38 +67,70 @@ async def test_list_is_empty_for_a_fresh_tenant(client: httpx.AsyncClient) -> No
 
 
 @pytest.mark.anyio
-async def test_list_is_newest_first_with_previews_status_and_only_own_rows(
+async def test_list_is_newest_first(client: httpx.AsyncClient) -> None:
+    """Two conversations are listed with the later one first."""
+    first_id = await create_conversation(client, ACME_TENANT_ID)
+    second_id = await create_conversation(client, ACME_TENANT_ID)
+
+    response = await client.get("/api/chat", headers=tenant_headers(ACME_TENANT_ID))
+
+    assert [summary["id"] for summary in response.json()] == [second_id, first_id]
+
+
+@pytest.mark.anyio
+async def test_list_carries_the_first_user_message_as_preview(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """Two Acme conversations and one of Globex: Acme sees its two, newest first."""
-    first_id = await create_conversation(client, ACME_TENANT_ID)
+    """A conversation with a message previews it; an untouched one previews nothing."""
+    written_id = await create_conversation(client, ACME_TENANT_ID)
     scripted_provider.add_turn(text_turn("Hello"))
-    await send_and_parse(client, ACME_TENANT_ID, first_id, "first message here")
-    second_id = await create_conversation(client, ACME_TENANT_ID)
+    await send_and_parse(client, ACME_TENANT_ID, written_id, "first message here")
+    untouched_id = await create_conversation(client, ACME_TENANT_ID)
+
+    response = await client.get("/api/chat", headers=tenant_headers(ACME_TENANT_ID))
+
+    previews_by_id = {summary["id"]: summary["preview"] for summary in response.json()}
+    assert previews_by_id[written_id] == "first message here"
+    assert previews_by_id[untouched_id] == ""
+
+
+@pytest.mark.anyio
+async def test_list_excludes_other_tenants_conversations(client: httpx.AsyncClient) -> None:
+    """Globex's conversation never appears in Acme's list."""
+    acme_id = await create_conversation(client, ACME_TENANT_ID)
     await create_conversation(client, GLOBEX_TENANT_ID)
 
     response = await client.get("/api/chat", headers=tenant_headers(ACME_TENANT_ID))
 
-    summaries = response.json()
-    assert [summary["id"] for summary in summaries] == [second_id, first_id]
-    assert summaries[0]["preview"] == ""
-    assert summaries[1]["preview"] == "first message here"
-    assert summaries[1]["status"] == CONVERSATION_STATUS_ACTIVE
+    assert [summary["id"] for summary in response.json()] == [acme_id]
 
 
 @pytest.mark.anyio
-async def test_list_cuts_long_previews_and_marks_frozen_conversations(
+async def test_list_cuts_long_previews_at_the_bound(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """A long first message is cut at the bound, and a frozen conversation says so."""
+    """A long first message is cut at the bound and marked."""
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
-    long_text = "delete " * CONVERSATION_PREVIEW_MAX_LENGTH
-    scripted_provider.add_turn(tool_turn([delete_call("c1", 1)]))
+    long_text = "word " * CONVERSATION_PREVIEW_MAX_LENGTH
+    scripted_provider.add_turn(text_turn("Noted."))
     await send_and_parse(client, ACME_TENANT_ID, conversation_id, long_text)
 
     response = await client.get("/api/chat", headers=tenant_headers(ACME_TENANT_ID))
 
-    summary = response.json()[0]
-    assert summary["status"] == CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
-    assert summary["preview"].endswith(CONVERSATION_PREVIEW_ELLIPSIS)
-    assert len(summary["preview"]) <= CONVERSATION_PREVIEW_MAX_LENGTH + 1
+    preview = response.json()[0]["preview"]
+    assert preview.endswith(CONVERSATION_PREVIEW_ELLIPSIS)
+    assert len(preview) <= CONVERSATION_PREVIEW_MAX_LENGTH + len(CONVERSATION_PREVIEW_ELLIPSIS)
+
+
+@pytest.mark.anyio
+async def test_list_reports_a_frozen_conversation_as_waiting(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """A conversation halted on a tool call carries the waiting status in the list."""
+    conversation_id = await create_conversation(client, ACME_TENANT_ID)
+    scripted_provider.add_turn(tool_turn([delete_call("c1", 1)]))
+    await send_and_parse(client, ACME_TENANT_ID, conversation_id, "delete 1")
+
+    response = await client.get("/api/chat", headers=tenant_headers(ACME_TENANT_ID))
+
+    assert response.json()[0]["status"] == CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE

@@ -22,11 +22,17 @@ def test_protected_paths_are_the_api_minus_the_public_ones(path: str, expected: 
     assert is_protected_path(path) is expected
 
 
-def test_header_value_is_case_insensitive_and_none_when_absent() -> None:
-    """The header is found whatever its case and None is returned when missing."""
+def test_header_value_is_case_insensitive() -> None:
+    """The header is found whatever case the name is asked for in."""
     scope = {"headers": [(b"x-tenant-id", b"acme"), (b"accept", b"*/*")]}
 
     assert header_value(scope, "X-Tenant-ID") == "acme"
+
+
+def test_header_value_is_none_when_absent() -> None:
+    """A header that is not present yields None rather than an error."""
+    scope = {"headers": [(b"accept", b"*/*")]}
+
     assert header_value(scope, "Authorization") is None
 
 

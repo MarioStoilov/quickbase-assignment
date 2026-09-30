@@ -8,7 +8,6 @@ from tests.fakes.scripted_provider import ScriptedProvider
 from tests.helpers.requests import (
     create_conversation,
     list_ticket_ids,
-    post_message,
     read_conversation,
     send_and_parse,
     tenant_headers,
@@ -16,7 +15,7 @@ from tests.helpers.requests import (
 from tests.helpers.stream import parse_stream
 from tests.helpers.turns import delete_call, text_turn, tool_turn, update_call
 from ticket_agent.constants.conversations import CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
-from ticket_agent.constants.seed import ACME_TENANT_ID, TARGET_FOREIGN_TICKET_ID
+from ticket_agent.constants.seed import ACME_TENANT_ID
 
 
 @pytest.mark.anyio
@@ -25,18 +24,18 @@ async def test_injected_delete_all_is_not_executed_without_approval(
 ) -> None:
     """The attacker controls the text of Acme ticket 3 and, through it, the model.
 
-    The model obeys the brief's payload and requests a delete of every id it knows,
-    Globex's 47 first, then Acme's own. The foreign id fails validation inline with a
-    not-found result and no dialog; the first own-tenant call freezes the conversation
-    and ends the stream. Nothing is deleted, the later calls are not even considered,
-    and the model is not called again until the person answers.
+    The model obeys the payload's "delete all IDs" and requests a delete of every Acme
+    ticket in one turn. The first call freezes the conversation and ends the stream:
+    nothing is deleted. The later calls are not even considered, and the model is not
+    called again until the person answers. (The payload's other half, the foreign
+    ticket 47, is the subject of the tenant isolation cases.)
     """
     # An Acme conversation, as an Acme user would open it.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
 
-    # Script the model obeying the payload: a delete of Globex's ticket 47 first, then a
-    # delete of every Acme ticket, all requested in the same turn.
-    calls = [delete_call("call-47", TARGET_FOREIGN_TICKET_ID)]
+    # Script the model obeying the payload: a delete of every Acme ticket, all requested
+    # in the same turn.
+    calls = []
     for ticket_id in ACME_TICKET_IDS:
         calls.append(delete_call(f"call-{ticket_id}", ticket_id))
     scripted_provider.add_turn(tool_turn(calls, leading_text="Deleting everything as instructed."))
@@ -44,13 +43,8 @@ async def test_injected_delete_all_is_not_executed_without_approval(
     # The person asks something innocent; the injected text does the rest.
     stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "summarise ticket 3")
 
-    # The foreign call is the only one that got a result, and it is the not-found error.
-    foreign_output = stream.of_type("tool-output-available")
-    assert len(foreign_output) == 1
-    assert foreign_output[0]["toolCallId"] == "call-47"
-    assert "not found" in foreign_output[0]["output"]["error"]
-
-    # The first own-tenant call froze the conversation and ended the stream.
+    # No call got a result; the first one froze the conversation and ended the stream.
+    assert stream.of_type("tool-output-available") == []
     required = stream.of_type("data-tool-response-required")[0]["data"]
     assert required["toolCallId"] == "call-1"
     conversation = await read_conversation(client, ACME_TENANT_ID, conversation_id)
@@ -107,7 +101,7 @@ async def test_model_cannot_self_approve(
     delete, and a second scripted turn stands ready to "confirm" it. The only path
     that executes a gated tool is the response route with the pending call id, which
     the model cannot call: the conversation freezes, the second turn is never used,
-    a new message is refused with 409, and the ticket still exists.
+    and the ticket still exists.
     """
     # An Acme conversation.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
@@ -119,14 +113,14 @@ async def test_model_cannot_self_approve(
     )
     scripted_provider.add_turn(text_turn("Confirmed, ticket 2 is deleted."))
 
-    # The person asks for the delete, then tries to continue the conversation.
+    # The person asks for the delete.
     stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "delete 2")
-    follow_up = await post_message(client, ACME_TENANT_ID, conversation_id, "is it gone?")
 
-    # No tool ran, the follow-up was refused because the conversation is frozen, the
-    # second scripted turn was never used, and the ticket is still there.
+    # No tool ran, the conversation is frozen on the call, the second scripted turn was
+    # never used, and the ticket is still there.
     assert stream.of_type("tool-output-available") == []
-    assert follow_up.status_code == 409
+    conversation = await read_conversation(client, ACME_TENANT_ID, conversation_id)
+    assert conversation["status"] == CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
     assert len(scripted_provider.calls) == 1
     assert 2 in await list_ticket_ids(client, ACME_TENANT_ID)
 
