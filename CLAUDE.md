@@ -181,8 +181,7 @@ def mutate_ticket(ticket_id: str, action: str, caller_tenant_id: str) -> Ticket:
   gets a test that drives it with a fake model whose tool calls are scripted, so that
   the security rules are checked without a live LLM. The test suite is green before a
   change is reported done, and it runs without network access or an API key.
-- The adversarial cases are the deliverable the reviewers will read most closely. One
-  well-reasoned case per category, each named after the attack it checks
+- The adversarial cases: One well-reasoned case per category, each named after the attack it checks
   (`test_injected_delete_all_is_not_executed_without_approval`,
   `test_search_never_returns_other_tenant_tickets`), each with a docstring saying what
   the attacker controls, what they try, and which rule stops them.
