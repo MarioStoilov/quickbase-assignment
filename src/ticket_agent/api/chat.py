@@ -1,11 +1,12 @@
-"""The chat endpoints: create a conversation, read it, post to it, answer a tool call.
+"""The chat endpoints: list, create and read conversations, post to one, answer a call.
 
-Lifecycle: `POST /api/chat/new` creates a conversation for the calling tenant and
-returns its id; `GET /api/chat/{id}` returns it with its messages and, when frozen, the
-tool call it waits on; `POST /api/chat/{id}` appends one user message and streams the
-agent's reply; `POST /api/chat/{id}/tool-calls/{call_id}/response` answers the pending
-call and streams the continuation. Reads and posts answer 404 for an id that does not
-exist or belongs to another tenant, identically.
+Lifecycle: `GET /api/chat` lists the calling tenant's conversations, newest first;
+`POST /api/chat/new` creates a conversation for the calling tenant and returns its id;
+`GET /api/chat/{id}` returns it with its messages and, when frozen, the tool call it
+waits on; `POST /api/chat/{id}` appends one user message and streams the agent's
+reply; `POST /api/chat/{id}/tool-calls/{call_id}/response` answers the pending call
+and streams the continuation. Reads and posts answer 404 for an id that does not exist
+or belongs to another tenant, identically.
 """
 
 from datetime import datetime
@@ -27,8 +28,11 @@ from ticket_agent.constants.conversations import (
     AWAITING_TOOL_RESPONSE_DETAIL,
     CONVERSATION_ID_MAX_LENGTH,
     CONVERSATION_NOT_FOUND_DETAIL,
+    CONVERSATION_PREVIEW_ELLIPSIS,
+    CONVERSATION_PREVIEW_MAX_LENGTH,
     CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE,
     INVALID_RESPONSE_OPTION_DETAIL,
+    MESSAGE_ROLE_USER,
     NO_SUCH_PENDING_CALL_DETAIL,
 )
 from ticket_agent.constants.ui_stream import UI_MESSAGE_ROLE_USER, UI_MESSAGE_TEXT_PART_TYPE
@@ -52,6 +56,19 @@ class ConversationCreatedResponse(BaseModel):
 
     id: str
     created_at: datetime
+
+
+class ConversationSummaryResponse(BaseModel):
+    """One conversation in the tenant's list: id, start time, status, and a preview.
+
+    The preview is the first message the person typed, cut to a bounded length; empty
+    for a conversation nobody has written to yet.
+    """
+
+    id: str
+    created_at: datetime
+    status: str
+    preview: str
 
 
 class ConversationMessageResponse(BaseModel):
@@ -111,6 +128,34 @@ class ToolResponseRequest(BaseModel):
     """Body of the tool-call response route: which of the offered options was picked."""
 
     option: str
+
+
+def preview_of(conversation: TenantConversation) -> str:
+    """Return the first user message of a conversation, cut to the preview length.
+
+    Args:
+        conversation: the ORM row, with its messages relationship.
+
+    Returns:
+        The text, cut and marked when longer than the bound; empty when the person has
+        not written anything yet.
+    """
+    for row in conversation.messages:
+        is_user_message = row.role == MESSAGE_ROLE_USER
+        if not is_user_message:
+            continue
+
+        text = row.content["text"]
+        is_too_long = len(text) > CONVERSATION_PREVIEW_MAX_LENGTH
+        if not is_too_long:
+            return text
+
+        cut_text = text[:CONVERSATION_PREVIEW_MAX_LENGTH].rstrip()
+        preview = f"{cut_text}{CONVERSATION_PREVIEW_ELLIPSIS}"
+
+        return preview
+
+    return ""
 
 
 def conversation_response_from_model(
@@ -232,6 +277,36 @@ def loop_dependencies_of(request: Request) -> LoopDependencies:
     )
 
     return dependencies
+
+
+@router.get("/api/chat")
+def list_conversations(
+    tenant: CallerTenant, session: DatabaseSession
+) -> list[ConversationSummaryResponse]:
+    """Return the calling tenant's conversations, newest first, each with a preview.
+
+    Args:
+        tenant: the tenant resolved from the `X-Tenant-ID` header.
+        session: per-request database session.
+
+    Returns:
+        One summary per conversation of the tenant; empty when there are none.
+    """
+    store = TenantConversationStore(session)
+    conversations = store.list_all(tenant.id)
+
+    summaries = []
+    for conversation in conversations:
+        preview = preview_of(conversation)
+        summary = ConversationSummaryResponse(
+            id=conversation.id,
+            created_at=conversation.created_at,
+            status=conversation.status,
+            preview=preview,
+        )
+        summaries.append(summary)
+
+    return summaries
 
 
 # Registered before the `{conversation_id}` routes so that the literal `new` is never

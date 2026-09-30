@@ -1,0 +1,380 @@
+/* Layout and looks of the whole frontend. Class names match the components' markup. */
+
+:root {
+  --colour-background: #f4f5f7;
+  --colour-surface: #ffffff;
+  --colour-border: #d7dbe0;
+  --colour-text: #1f2933;
+  --colour-muted: #616e7c;
+  --colour-accent: #2d5be3;
+  --colour-accent-text: #ffffff;
+  --colour-user-bubble: #dfe7fb;
+  --colour-trace-background: #f7f8fa;
+  --colour-error: #b42318;
+  --colour-error-background: #fdecea;
+  --radius: 10px;
+  --space: 12px;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: var(--colour-text);
+  background: var(--colour-background);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body,
+#root {
+  margin: 0;
+  height: 100vh;
+}
+
+button {
+  font: inherit;
+  padding: 6px 14px;
+  border: 1px solid var(--colour-border);
+  border-radius: var(--radius);
+  background: var(--colour-surface);
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+pre,
+code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+
+/* Screens */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space);
+  gap: var(--space);
+}
+
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+}
+
+.screen-header h1 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.screen-tenant {
+  margin: 0;
+  color: var(--colour-muted);
+}
+
+.screen-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.screen-loading {
+  color: var(--colour-muted);
+}
+
+.screen-error {
+  padding: var(--space);
+  border-radius: var(--radius);
+  color: var(--colour-error);
+  background: var(--colour-error-background);
+}
+
+.login {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.login-tenants {
+  display: flex;
+  gap: var(--space);
+}
+
+.login-tenant {
+  padding: 14px 28px;
+  font-size: 1.05rem;
+}
+
+/* Conversation list */
+
+.conversations-heading {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--colour-muted);
+}
+
+.conversation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.conversation-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.conversation-row:hover {
+  border-color: var(--colour-accent);
+}
+
+.conversation-row-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-row-preview-empty {
+  font-style: italic;
+  color: var(--colour-muted);
+}
+
+.conversation-row-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: var(--colour-muted);
+}
+
+.conversation-row-waiting {
+  color: var(--colour-accent);
+}
+
+/* Conversation */
+
+.conversation {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--colour-border);
+  border-radius: var(--radius);
+  background: var(--colour-surface);
+}
+
+.conversation-viewport {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.conversation-empty {
+  margin: auto;
+  color: var(--colour-muted);
+  text-align: center;
+}
+
+.message {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  line-height: 1.45;
+}
+
+.message-user {
+  align-self: flex-end;
+  background: var(--colour-user-bubble);
+  white-space: pre-wrap;
+}
+
+.message-assistant {
+  align-self: flex-start;
+  background: var(--colour-trace-background);
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.message-error {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  color: var(--colour-error);
+  background: var(--colour-error-background);
+}
+
+/* Tool trace */
+
+.tool-trace {
+  margin: 8px 0;
+  border: 1px solid var(--colour-border);
+  border-radius: var(--radius);
+  background: var(--colour-surface);
+}
+
+.tool-trace-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-trace-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-trace-summary::before {
+  content: "▸";
+  color: var(--colour-muted);
+}
+
+.tool-trace[open] > .tool-trace-summary::before {
+  content: "▾";
+}
+
+.tool-trace-heading {
+  font-weight: 600;
+}
+
+.tool-trace-state {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--colour-muted);
+}
+
+.tool-trace-state-waiting {
+  color: var(--colour-accent);
+}
+
+.tool-trace-state-error {
+  color: var(--colour-error);
+}
+
+.tool-trace-body {
+  padding: 0 10px 8px;
+  border-top: 1px solid var(--colour-border);
+}
+
+.tool-trace-label {
+  margin: 8px 0 2px;
+  font-size: 0.8rem;
+  color: var(--colour-muted);
+  text-transform: uppercase;
+}
+
+.tool-trace-arguments,
+.tool-trace-result {
+  margin: 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--colour-trace-background);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-trace-error {
+  color: var(--colour-error);
+  background: var(--colour-error-background);
+}
+
+.tool-trace-pending {
+  margin: 0;
+  font-style: italic;
+  color: var(--colour-muted);
+}
+
+/* Composer */
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: var(--space);
+  border-top: 1px solid var(--colour-border);
+}
+
+.composer-input {
+  flex: 1;
+  resize: none;
+  padding: 8px 10px;
+  font: inherit;
+  border: 1px solid var(--colour-border);
+  border-radius: var(--radius);
+}
+
+.composer-send {
+  color: var(--colour-accent-text);
+  background: var(--colour-accent);
+  border-color: var(--colour-accent);
+}
+
+/* Tool response dialog */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(31, 41, 51, 0.45);
+}
+
+.modal {
+  width: min(560px, 92vw);
+  padding: 20px 24px;
+  border-radius: var(--radius);
+  background: var(--colour-surface);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.modal h2 {
+  margin-top: 0;
+}
+
+.modal-tool-name code {
+  font-size: 1rem;
+}
+
+.modal-options {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.modal-option {
+  text-transform: capitalize;
+}
+
+.modal-option:first-child {
+  color: var(--colour-accent-text);
+  background: var(--colour-accent);
+  border-color: var(--colour-accent);
+}

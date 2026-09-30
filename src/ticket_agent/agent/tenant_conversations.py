@@ -73,6 +73,25 @@ class TenantConversationStore:
 
         return conversation
 
+    def list_all(self, tenant_id: str) -> list[TenantConversation]:
+        """Return every conversation of `tenant_id`, newest first.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+
+        Returns:
+            The tenant's conversation rows, newest first; empty when there are none.
+            Another tenant's conversations are never included.
+        """
+        statement = (
+            select(TenantConversation)
+            .where(TenantConversation.tenant_id == tenant_id)
+            .order_by(TenantConversation.created_at.desc(), TenantConversation.id.desc())
+        )
+        conversations = list(self._session.scalars(statement).all())
+
+        return conversations
+
     def create(self, tenant_id: str) -> TenantConversation:
         """Create an empty conversation owned by `tenant_id` with a fresh id and commit.
 

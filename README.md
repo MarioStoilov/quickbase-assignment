@@ -10,16 +10,26 @@ the prompt, and every mutation waits for an explicit click in the UI.
 
 - Python 3.12 or newer and [uv](https://docs.astral.sh/uv/).
 - SQLite (bundled with Python).
+- Node.js 20 or newer and npm, for the frontend.
 
 ## Setup
 
+The system is two services: the backend (the API, this directory) and the frontend
+(the browser client, [`frontend/`](frontend/README.md)). Each has its own process and
+port; the frontend forwards API calls to the backend.
+
 ```bash
-make install     # create the virtual environment with the locked dependencies
+make install     # backend virtual environment and frontend dependencies, both locked
 make init        # create the SQLite schema and load the seed tenants and tickets
-make run         # start the API on http://127.0.0.1:8000
+make run-all     # start the API on http://127.0.0.1:8000 and the UI on http://localhost:5173
 ```
 
-The server refuses to start until `make init` has been run against the configured
+Open http://localhost:5173, pick a tenant, and chat. Ctrl+C stops both. To run the
+services in separate terminals, `make run` starts the backend and `make frontend`
+builds and serves the frontend. The API alone can be driven with curl (see "Talking
+to the running server" below).
+
+The backend refuses to start until `make init` has been run against the configured
 database, and until `GEMINI_API_KEY` is set (next section); both failures name what is
 missing. `make init` refuses to overwrite an existing schema; `make reset-db` drops it
 and starts over. `make seed` loads the seed data into an existing empty schema. After
@@ -64,18 +74,22 @@ directory (see [`.env.example`](.env.example)).
 | `GEMINI_API_KEY`             | unset             | Google AI Studio key; required for model calls |
 | `TICKET_AGENT_GEMINI_MODEL_ID` | `gemini-3.5-flash-lite` | Gemini model every turn is sent to |
 | `TICKET_AGENT_MAX_TOOL_ROUNDS` | `8`               | Model calls per request; bounds runaway tool use |
+| `TICKET_AGENT_FRONTEND_PORT` | `5173`            | Port of the frontend service; read by the frontend only |
+
+The frontend also reads `TICKET_AGENT_HOST` and `TICKET_AGENT_PORT` to know where to
+forward API calls, so the two services agree from one `.env` file.
 
 ## Commands
 
-Every target runs through `uv`, so the locked environment is used without activating
-it by hand.
+Every backend target runs through `uv`, so the locked environment is used without
+activating it by hand; every frontend target runs npm inside `frontend/`.
 
 ### Environment and code quality
 
 ```bash
-make install                                    # uv sync: virtual environment + locked deps
-make lint                                       # ruff format --check and ruff check
-make format                                     # ruff format and auto-fixable lint rules
+make install                                    # uv sync, then npm ci in frontend/
+make lint                                       # ruff format --check and ruff check; eslint, prettier and tsc
+make format                                     # ruff format and auto-fixable lint rules; prettier and eslint --fix
 ```
 
 ### Database
@@ -90,7 +104,11 @@ make db-dump                                    # print tenants and tickets (ARG
 ### Running
 
 ```bash
+make run-all                                    # start the API server and the frontend service from one terminal
 make run                                        # start the API server
+make frontend                                   # build the frontend and serve it as its own service
+make frontend-dev                               # serve the frontend from source with hot reload
+make frontend-build                             # build the frontend bundle into frontend/dist only
 make llm-probe ARGS="hello"                     # send one message to the model and stream the reply, no server needed
 ```
 
@@ -130,7 +148,9 @@ routing, resolves the header to a tenant row and stores it in the request state,
 answers 401 with one message for a missing and an unknown header alike. Handlers receive
 the stored row through the typed `CallerTenant` accessor; nothing reads the header again
 and nothing takes a tenant id from the model's output. Paths outside `/api/` (the API
-docs, later the frontend bundle) are served to anyone.
+docs) are served to anyone. The frontend sends the header with every request after the
+person picks a tenant on its login screen; the backend knows nothing about the
+frontend.
 
 ## Seed data
 
@@ -151,7 +171,10 @@ A chat is a *tenant conversation*: a row bound to one tenant, plus its messages 
 order. Its lifecycle is three calls. `POST /api/chat/new` creates an empty conversation
 for the calling tenant and returns a server-generated id. `POST /api/chat/{id}` appends
 one user message and streams the reply. `GET /api/chat/{id}` returns the conversation
-with its stored messages. The client sends only the newest message with each post; the
+with its stored messages. `GET /api/chat` lists the caller's conversations, newest
+first, each with its status and a preview made of the first user message cut to a
+bounded length; the list is not paginated, which is fine at this scale and would be
+the first thing to add for a real tenant. The client sends only the newest message with each post; the
 server holds the whole history and resends it to the model every turn. Holding it
 server-side means the client cannot rewrite the past, for example by inserting a
 fabricated tool result or a message claiming an approval was granted; that matters for
@@ -172,19 +195,23 @@ produced no text stores no assistant message.
 ## Tools and the response gate
 
 The model reaches the ticket store only through the tools in `tools/`, each in its own
-sub-package with its own constants: `search_tickets` (a `query`) and `mutate_ticket`
-(`ticket_id`, `action` of update or delete, and `fields` for an update). A tool's
-argument schema never contains a tenant or a conversation. Those come from a
-`ToolContext` the loop builds from the conversation the request was authorised
-against, so the model cannot name a tenant, and every repository call inside a tool
-carries the caller's tenant id.
+sub-package with its own constants: `search_tickets` (a `query`), `mutate_ticket`
+(`ticket_id`, `action` of update or delete, and `fields` for an update) and
+`create_ticket` (`title`, `description`, an optional `priority` defaulting to medium,
+and `requester_email`, which is required because the person chatting has no identity
+beyond the tenant, so the model asks for it). A tool's argument schema never contains
+a tenant or a conversation. Those come from a `ToolContext` the loop builds from the
+conversation the request was authorised against, so the model cannot name a tenant,
+every repository call inside a tool carries the caller's tenant id, and a created
+ticket lands in the caller's tenant and nowhere else.
 
 A tool declares `response_options`. Empty means it runs as soon as its arguments
 validate; `search_tickets` is such a tool. Non-empty means the tool cannot run on the
 model's word: the loop stores the model's turn, sets the conversation's status to
 `awaiting_tool_response` with the call id, streams a `data-tool-response-required` part
-naming the options, and ends the stream. `mutate_ticket` offers `approve` and
-`reject`. While frozen, `POST /api/chat/{id}` answers 409 naming the pending call.
+naming the options, and ends the stream. `mutate_ticket` and `create_ticket` offer
+`approve` and `reject`. While frozen, `POST /api/chat/{id}` answers 409 naming the
+pending call.
 The person answers through `POST /api/chat/{id}/tool-calls/{call_id}/response` with
 `{"option": ...}`; only the option travels, the arguments that run are the ones stored
 when the model made the call. A call id that is not the pending one, including a
@@ -197,7 +224,12 @@ is unfrozen, and the loop continues so the model reports the outcome.
 the fields against the repository's rules, and then that the ticket exists within the
 caller's tenant. A ticket of another tenant, such as the brief's #47, fails with the
 same not-found error as a missing one: the model is told, no prompt appears, and the
-conversation stays active. Calls are handled one at a time in the model's order, so a
+conversation stays active. For `create_ticket` it checks the fields against the
+repository's rules for a new ticket (non-empty title and description, a known
+priority, an address-shaped e-mail), so a malformed proposal never reaches the person.
+`create_ticket` was added after the frontend was finished and needed no frontend
+change: the trace and the dialog show its name, arguments and options from the
+stream alone. Calls are handled one at a time in the model's order, so a
 turn that proposes several changes waits on the first, then the next after each
 answer; the model is called again only when every call of its turn has a result. The
 number of model calls per request is bounded by `TICKET_AGENT_MAX_TOOL_ROUNDS`.
@@ -213,10 +245,30 @@ is streamed through the provider interface, each tool call it makes is validated
 run through the registry with a context built from the conversation, and the model is
 called again with the results until a turn ends without calls, a tool needs the
 person's answer, or the round bound is hit. `api/ui_stream.py` encodes the loop's
-events as the AI SDK UI message stream that the frontend will consume: server-sent
+events as the AI SDK UI message stream that the frontend consumes: server-sent
 events `start`, `text-start`, `text-delta`, `text-end`, `tool-input-available`,
 `tool-output-available`, `data-tool-response-required`, `error`, `finish`, then
 `[DONE]`, under the header `x-vercel-ai-ui-message-stream: v1`.
+
+### Frontend
+
+The frontend is a separate service in [`frontend/`](frontend/README.md): Vite, React and
+TypeScript, with the Vercel AI SDK for the stream protocol and assistant-ui primitives
+for the chat surface. It has its own server and port and forwards `/api` calls to the
+backend, so the backend carries no static files, no CORS configuration and no knowledge
+of which client is talking to it; another frontend can be run against the same API in
+the same way. It calls `GET /api/tenants` for its login screen, `GET /api/chat` for the
+list of the tenant's conversations shown after login, `POST /api/chat/new` for a new
+one, the two streaming routes for messages and tool responses, and `GET /api/chat/{id}`
+to open a conversation from the list or after a reload, pending call included.
+
+The frontend registers no tool. Every tool call in the stream is shown by one generic
+trace box (collapsed to the name and state by default; expanded, the arguments and
+the result), and every
+`data-tool-response-required` part opens one generic dialog with a button per offered
+option. Adding a tool to the backend's registry needs no frontend change. The
+frontend README describes its modules and the one stream detail its transport
+handles.
 
 For tickets the same shape applies: the handler receives the tenant as `CallerTenant`,
 opens a `TicketRepository` and passes `tenant.id` to it, and the repository puts that id
@@ -255,7 +307,7 @@ ticket_agent/
 │   ├── llm.py             default model, finish reasons, retry settings, signature key
 │   ├── seed.py            seeded tenant slugs and the target foreign ticket id
 │   ├── system_prompt.py   the system prompt as commented paragraphs (not a security boundary)
-│   ├── tickets.py         statuses, priorities, search limit, mutable fields
+│   ├── tickets.py         statuses, priorities, defaults and widths of a new ticket, search limit, mutable fields
 │   ├── tools.py           what every tool shares: the error key, unknown-tool and round-limit texts
 │   └── ui_stream.py       stream header, part types and field names of the AI SDK protocol
 ├── db/                    storage plumbing
@@ -276,12 +328,13 @@ ticket_agent/
 ├── tenants/
 │   └── repository.py      tenant lookups
 ├── tickets/
-│   └── repository.py      TicketRepository: every method takes tenant_id; foreign == missing
+│   └── repository.py      TicketRepository: every method takes tenant_id; foreign == missing; create lands in the caller's tenant
 ├── tools/                 what the model may call; one sub-package per tool with its own constants
 │   ├── base.py            Tool, ToolContext (tenant and conversation, never model input), ToolError
 │   ├── registry.py        ToolRegistry: register, get, declarations
 │   ├── search_tickets/    the read-only tool, no response options
-│   └── mutate_ticket/     update or delete, options approve and reject; ownership checked in validate
+│   ├── mutate_ticket/     update or delete, options approve and reject; ownership checked in validate
+│   └── create_ticket/     new open ticket in the caller's tenant, options approve and reject
 └── utils/                 developer utilities outside the running system
     ├── db/
     │   ├── seed_data.py   the seed rows and their injection payloads
@@ -306,6 +359,7 @@ Endpoints:
 | GET    | `/api/health`    | no   | liveness and version                      |
 | GET    | `/api/tenants`   | no   | the seeded tenants, for the login screen  |
 | GET    | `/api/tickets`   | yes  | the caller's tickets                      |
+| GET    | `/api/chat`      | yes | the caller's conversations, newest first, with a preview |
 | POST   | `/api/chat/new`  | yes | create a conversation, returns its id     |
 | GET    | `/api/chat/{id}` | yes | the conversation with its stored messages |
 | POST   | `/api/chat/{id}` | yes | one user message in, one streamed reply; 409 while frozen |
@@ -316,5 +370,6 @@ Endpoints:
 - Timestamps are not uniformly timezone-marked. A row returned straight after it is
   created carries a `Z` suffix, while the same row read back from SQLite does not,
   because SQLite stores no timezone and SQLAlchemy returns a naive value. Every stored
-  time is UTC either way. This is left as is for the purposes of the task; a real
-  service would normalise on the way out of the database.
+  time is UTC either way. One visible effect: the frontend's conversation list shows
+  the unmarked start times as if they were local. This is left as is for the purposes
+  of the task; a real service would normalise on the way out of the database.
