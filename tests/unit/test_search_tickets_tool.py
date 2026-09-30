@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ticket_agent.constants.seed import ACME_TENANT_ID, GLOBEX_TENANT_ID
 from ticket_agent.tickets.repository import TicketRepository
-from ticket_agent.tools.base import ToolContext
+from ticket_agent.tools.base import ToolContext, ToolError
 from ticket_agent.tools.search_tickets import SearchTicketsTool
 
 
@@ -75,3 +75,48 @@ def test_search_as_globex_sees_the_target_ticket(session: Session) -> None:
     result = tool.execute({"query": "merger"}, globex_context, None)
 
     assert [ticket["id"] for ticket in result["tickets"]] == [47]
+
+
+def test_lookup_by_id_returns_the_own_ticket(acme_context: ToolContext) -> None:
+    """A ticket id of the caller's tenant fetches exactly that ticket."""
+    tool = SearchTicketsTool()
+
+    result = tool.execute({"query": "", "ticket_id": 2}, acme_context, None)
+
+    assert [ticket["id"] for ticket in result["tickets"]] == [2]
+    assert result["count"] == 1
+
+
+def test_lookup_by_foreign_id_returns_nothing(acme_context: ToolContext) -> None:
+    """Globex's ticket 47 looked up as Acme is an empty result, not an error."""
+    tool = SearchTicketsTool()
+
+    result = tool.execute({"query": "", "ticket_id": 47}, acme_context, None)
+
+    assert result == {"tickets": [], "count": 0}
+
+
+def test_lookup_by_unknown_id_returns_nothing(acme_context: ToolContext) -> None:
+    """An id nobody has is an empty result, indistinguishable from a foreign one."""
+    tool = SearchTicketsTool()
+
+    result = tool.execute({"query": "", "ticket_id": 999}, acme_context, None)
+
+    assert result == {"tickets": [], "count": 0}
+
+
+def test_lookup_by_id_ignores_the_query(acme_context: ToolContext) -> None:
+    """When an id is given the query plays no part, even one that matches nothing."""
+    tool = SearchTicketsTool()
+
+    result = tool.execute({"query": "no such words", "ticket_id": 1}, acme_context, None)
+
+    assert result["count"] == 1
+
+
+def test_lookup_with_a_non_numeric_id_is_refused(acme_context: ToolContext) -> None:
+    """An id that is not a whole number is reported to the model before anything runs."""
+    tool = SearchTicketsTool()
+
+    with pytest.raises(ToolError, match="whole number"):
+        tool.validate({"query": "", "ticket_id": "two"}, acme_context)

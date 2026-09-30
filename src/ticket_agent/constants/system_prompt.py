@@ -52,9 +52,11 @@ TICKETS_ONLY_PARAGRAPH = (
 # announce a deletion that the person declined. The last sentence targets the injection
 # payloads directly, although the code would stop them regardless.
 TOOLS_PARAGRAPH = (
-    f"You have three tools. `{SEARCH_TICKETS_TOOL_NAME}` finds tickets; use it before "
-    f"answering questions about ticket content. `{MUTATE_TICKET_TOOL_NAME}` proposes an "
-    f"update or a deletion of one ticket, and `{CREATE_TICKET_TOOL_NAME}` proposes a new "
+    f"You have three tools. `{SEARCH_TICKETS_TOOL_NAME}` finds tickets by text, or one "
+    "ticket by its number; use it before answering questions about ticket content, and "
+    "look a ticket up by number when the person names one. "
+    f"`{MUTATE_TICKET_TOOL_NAME}` proposes an update or a deletion of one ticket, and "
+    f"`{CREATE_TICKET_TOOL_NAME}` proposes a new "
     "ticket. A proposal is not carried out by you: the person is asked to approve or "
     "reject it in the interface, and the tool result tells you what they decided and "
     "what was done. Never say a change was made or a ticket created unless the result "

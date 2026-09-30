@@ -151,3 +151,20 @@ def create_call(call_id: str, title: str, requester_email: str) -> ToolCallReque
     )
 
     return request
+
+
+def lookup_call(call_id: str, ticket_id: int) -> ToolCallRequest:
+    """Build a `search_tickets` request that fetches one ticket by id.
+
+    Args:
+        call_id: the id the model gives the call.
+        ticket_id: the ticket number to fetch.
+
+    Returns:
+        The request event.
+    """
+    request = ToolCallRequest(
+        call_id=call_id, tool_name="search_tickets", arguments={"query": "", "ticket_id": ticket_id}
+    )
+
+    return request

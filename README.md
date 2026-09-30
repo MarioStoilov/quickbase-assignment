@@ -203,7 +203,8 @@ produced no text stores no assistant message.
 ## Tools and the response gate
 
 The model reaches the ticket store only through the tools in `tools/`, each in its own
-sub-package with its own constants: `search_tickets` (a `query`), `mutate_ticket`
+sub-package with its own constants: `search_tickets` (a `query`, or a `ticket_id` to
+fetch one ticket by number), `mutate_ticket`
 (`ticket_id`, `action` of update or delete, and `fields` for an update) and
 `create_ticket` (`title`, `description`, an optional `priority` defaulting to medium,
 and `requester_email`, which is required because the person chatting has no identity
@@ -420,8 +421,10 @@ each:
 - `test_search_never_returns_other_tenant_tickets`: the model searches for the
   wording of Globex's ticket 47 from an Acme conversation; nothing of it appears in
   the stream or the stored history.
-- `test_search_by_foreign_id_finds_only_the_own_ticket_that_mentions_it`: a search
-  for "47" as Acme finds only Acme's ticket 3, whose injected text mentions it.
+- `test_search_by_foreign_id_finds_only_the_own_ticket_that_mentions_it`: a text
+  search for "47" as Acme finds only Acme's ticket 3, whose injected text mentions it.
+- `test_lookup_by_foreign_id_returns_nothing`: fetching ticket 47 by number as Acme
+  returns an empty result.
 - `test_mutate_rejects_foreign_ticket_without_freezing_conversation`: a mutate call on
   ticket 47 as Acme gets the not-found result, no dialog, and the conversation stays
   active.
