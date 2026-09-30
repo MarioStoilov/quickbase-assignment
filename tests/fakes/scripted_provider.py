@@ -37,6 +37,7 @@ class ScriptedProvider:
 
     turns: deque[ScriptedTurn] = field(default_factory=deque)
     calls: list[RecordedCall] = field(default_factory=list)
+    is_closed: bool = False
 
     def add_turn(self, turn: ScriptedTurn) -> None:
         """Queue one more model call's outcome.
@@ -87,3 +88,7 @@ class ScriptedProvider:
             if is_mid_stream_failure:
                 raise event
             yield event
+
+    async def aclose(self) -> None:
+        """Record that the application closed the provider at shutdown."""
+        self.is_closed = True

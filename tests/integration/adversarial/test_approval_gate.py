@@ -91,11 +91,12 @@ async def test_approved_execution_uses_frozen_arguments(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
     """
-    We ask the model to delete ticket 2. The response is a request for approval, but we find a way to
-    inject a different ticket id into the approval response (id 4). The user is presented with a modal to
-    delete ticket 4, while the original tool call was for ticket 2.
-    Result: the approval is granted, but the tool call still deletes ticket 2. (I.E, we do not rely on the
-    approval call to change the tool call's arguments.)
+    We ask the model to delete ticket 2. The response is a request for approval, but we
+    find a way to inject a different ticket id into the approval response (id 4). The
+    user is presented with a modal to delete ticket 4, while the original tool call was
+    for ticket 2.
+    Result: the approval is granted, but the tool call still deletes ticket 2. (I.E, we
+    do not rely on the approval call to change the tool call's arguments.)
     """
     # An Acme conversation frozen on a delete of ticket 2, as the model proposed it.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)

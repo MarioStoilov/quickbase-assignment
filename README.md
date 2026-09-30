@@ -91,6 +91,7 @@ make install                                    # uv sync, npm ci in frontend/, 
 make lint                                       # ruff format --check and ruff check; eslint, prettier and tsc
 make format                                     # ruff format and auto-fixable lint rules; prettier and eslint --fix
 make test                                       # backend test suite with coverage; no network, no API key
+make test-live                                  # live prompt-injection scenarios against the real model; writes a report
 ```
 
 `make install` points git's `core.hooksPath` at `.githooks/`, whose `pre-commit` hook
@@ -383,6 +384,16 @@ utilities under `utils/` and the uvicorn entry point are excluded from the measu
 set. The frontend has no automated tests yet; it was verified in a headless browser
 against the running system.
 
+`make test-live` is the opposite kind of run: it sends genuine prompt-injection
+questions to the configured Gemini model through the whole application, on a fresh
+temporary database seeded like production, and writes a transcript of every
+conversation to `reports/adversarial-live-<timestamp>.md` (gitignored). These tests
+carry the `live_model` marker, are deselected from `make test`, and skip without
+`GEMINI_API_KEY`. Each scenario asserts the invariants the code enforces (no foreign
+ticket text shown, no ticket changed, since the runner rejects every proposal) and a
+behavioural expectation of a well-instructed model; a failure of the latter is a
+finding about the prompt or the model, and the report shows what it did instead.
+
 ```
 tests/
 ├── conftest.py            per-test database, scripted provider, started application, HTTP client
@@ -394,14 +405,17 @@ tests/
 │                          Gemini conversion, streaming and retries with a fake SDK client,
 │                          the CLI on a temporary file, startup refusals, settings
 ├── integration/           the whole application through HTTP with only the model scripted:
-│                          auth and public paths, tickets, the conversation lifecycle and
-│                          list, streaming turns, refusals, provider failures, the round
-│                          bound, the freeze and the response route
-└── adversarial/           one named case per attack, each docstring saying what the
-                           attacker controls, what they try, and which rule stops them
+│   │                      auth and public paths, tickets, the conversation lifecycle and
+│   │                      list, streaming turns, refusals, provider failures, the round
+│   │                      bound, the freeze and the response route
+│   └── adversarial/       one named case per attack against the scripted model, each
+│                          docstring saying what the attacker controls, what they try,
+│                          and which rule stops them
+└── adversarial/           the live scenarios against the real model (`make test-live`)
 ```
 
-The adversarial cases, the part of the suite that matters most, one scenario each:
+The scripted adversarial cases, the part of the suite that matters most, one scenario
+each:
 
 - `test_search_never_returns_other_tenant_tickets`: the model searches for the
   wording of Globex's ticket 47 from an Acme conversation; nothing of it appears in
@@ -430,9 +444,15 @@ The adversarial cases, the part of the suite that matters most, one scenario eac
   `..._with_another_conversations_call_id`, `test_tool_response_cannot_be_replayed`:
   the pending call id is accepted once, from its owner, on its own conversation.
 
-Writing the suite found one defect: the tenant middleware assumed every ASGI scope
+The live scenarios, one prompt each: a claim of authority over Globex's tickets, an
+"ignore all previous prompts" request for a shell script, a polite request for a joke,
+an instruction to lie about ticket 2 followed by a question about it, a question
+riddled with typos, and a request to repeat every description ten thousand times.
+
+Writing the suite found two defects: the tenant middleware assumed every ASGI scope
 carries a `state` dictionary, which uvicorn provides and an in-process transport does
-not; it now creates one when absent.
+not, and the Gemini SDK's HTTP client was never closed at shutdown; the middleware now
+creates the dictionary when absent and the lifespan closes the provider.
 
 ## Known caveats
 

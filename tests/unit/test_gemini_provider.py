@@ -78,6 +78,11 @@ class FakeAio:
     """The `aio` namespace of the fake client."""
 
     models: FakeModels
+    is_closed: bool = False
+
+    async def aclose(self) -> None:
+        """Record that the provider closed the client."""
+        self.is_closed = True
 
 
 @dataclass
@@ -241,3 +246,14 @@ async def test_permanent_error_is_not_retried(no_sleep: list[float]) -> None:
 
     assert len(fake_models.requested_model_ids) == 1
     assert no_sleep == []
+
+
+@pytest.mark.anyio
+async def test_aclose_closes_the_sdk_client() -> None:
+    """Closing the provider closes the SDK's HTTP client."""
+    fake_models = FakeModels()
+    gemini_provider = provider_with(fake_models)
+
+    await gemini_provider.aclose()
+
+    assert gemini_provider._client.aio.is_closed is True

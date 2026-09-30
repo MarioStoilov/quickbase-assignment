@@ -1,6 +1,6 @@
 # Every backend target runs through uv so the project's locked environment is used;
 # every frontend target runs npm inside `frontend/`. The two are separate services.
-.PHONY: install lint format test init reset-db seed db-dump llm-probe run run-all frontend frontend-dev frontend-build
+.PHONY: install lint format test test-live init reset-db seed db-dump llm-probe run run-all frontend frontend-dev frontend-build
 
 # Create the backend virtual environment with the locked dependencies, install the
 # frontend's locked dependencies, and point git at the repository's hooks so the unit
@@ -27,6 +27,12 @@ format:
 # pyproject.toml. Needs no network and no API key.
 test:
 	uv run pytest --cov --cov-report=term-missing
+
+# Run the live adversarial scenarios against the configured Gemini model on a fresh
+# temporary database, and write a transcript report under reports/. Needs
+# GEMINI_API_KEY and network; deselected from `make test`.
+test-live:
+	uv run pytest tests/adversarial -m live_model -p no:cacheprovider
 
 # Create the database schema and load the seed data. Refuses an existing schema.
 init:

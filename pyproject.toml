@@ -39,9 +39,13 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 known-first-party = ["ticket_agent", "tests"]
 
 [tool.pytest.ini_options]
-# Every test lives under tests/; the suite needs no network and no API key.
+# Every test lives under tests/. The default run deselects the live-model tests, so
+# `make test` needs no network and no API key; `make test-live` selects them.
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not live_model'"
+markers = [
+    "live_model: sends real requests to the configured Gemini model; needs GEMINI_API_KEY and network",
+]
 
 [tool.coverage.run]
 # Measured over the installed package; the developer utilities (seed data, dump,

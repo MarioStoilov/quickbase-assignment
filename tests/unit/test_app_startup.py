@@ -67,3 +67,15 @@ def test_settings_read_the_environment_with_the_prefix(
     assert loaded.gemini_api_key.get_secret_value() == "plain-key"
     assert loaded.gemini_model_id == DEFAULT_GEMINI_MODEL_ID
     assert loaded.database_url.endswith("env.db")
+
+
+@pytest.mark.anyio
+async def test_shutdown_closes_the_provider(settings: Settings, engine: object) -> None:
+    """Leaving the lifespan closes the provider so its connections do not outlive the loop."""
+    provider = ScriptedProvider()
+    application = create_app(settings=settings, model_provider=provider)
+
+    async with application.router.lifespan_context(application):
+        assert provider.is_closed is False
+
+    assert provider.is_closed is True
