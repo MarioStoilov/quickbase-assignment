@@ -9,6 +9,7 @@ from ticket_agent.constants.conversations import (
     CONVERSATION_ID_MAX_LENGTH,
     CONVERSATION_STATUS_ACTIVE,
 )
+from ticket_agent.constants.tickets import REQUESTER_EMAIL_MAX_LENGTH, TICKET_TITLE_MAX_LENGTH
 
 
 def utc_now() -> datetime:
@@ -56,7 +57,7 @@ class Ticket(Base):
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
-    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    title: Mapped[str] = mapped_column(String(TICKET_TITLE_MAX_LENGTH), nullable=False)
 
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -67,7 +68,7 @@ class Ticket(Base):
     priority: Mapped[str] = mapped_column(String(32), nullable=False)
 
     # E-mail address of the person who opened the ticket, as they typed it.
-    requester_email: Mapped[str] = mapped_column(String(254), nullable=False)
+    requester_email: Mapped[str] = mapped_column(String(REQUESTER_EMAIL_MAX_LENGTH), nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now

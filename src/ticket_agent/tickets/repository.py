@@ -13,8 +13,12 @@ from sqlalchemy.orm import Session
 
 from ticket_agent.constants.tickets import (
     ALLOWED_FIELD_VALUES,
+    DEFAULT_TICKET_STATUS,
     MUTABLE_TICKET_FIELDS,
+    REQUESTER_EMAIL_MAX_LENGTH,
     SEARCH_RESULT_LIMIT,
+    TICKET_PRIORITIES,
+    TICKET_TITLE_MAX_LENGTH,
 )
 from ticket_agent.db.models import Ticket
 
@@ -33,7 +37,8 @@ class TicketNotFound(Exception):
 
 
 class InvalidTicketFields(Exception):
-    """An update names a field that cannot be changed or gives it a value outside its set."""
+    """A change or a new ticket names a field that cannot be set, or gives it a value that
+    is empty, too long, or outside its allowed set."""
 
 
 class TicketRepository:
@@ -80,6 +85,98 @@ class TicketRepository:
                 raise InvalidTicketFields(
                     f"'{new_value}' is not a valid {field_name}; allowed: {allowed_list}"
                 )
+
+    def validate_new_ticket(
+        self, title: str, description: str, priority: str, requester_email: str
+    ) -> None:
+        """Reject a new ticket whose fields are empty, too long or outside their sets.
+
+        Public so that a caller can check a ticket before acting on it, for example
+        before asking a person to approve its creation. `create` applies the same check
+        itself.
+
+        Args:
+            title: the ticket's title; non-empty, at most `TICKET_TITLE_MAX_LENGTH`.
+            description: the ticket's text; non-empty.
+            priority: one of `TICKET_PRIORITIES`.
+            requester_email: the requester's address; non-empty, at most
+                `REQUESTER_EMAIL_MAX_LENGTH`, with one `@` inside it.
+
+        Raises:
+            InvalidTicketFields: a field breaks one of the rules above.
+        """
+        normalised_title = title.strip()
+        is_title_empty = normalised_title == ""
+        if is_title_empty:
+            raise InvalidTicketFields("title must not be empty")
+
+        is_title_too_long = len(normalised_title) > TICKET_TITLE_MAX_LENGTH
+        if is_title_too_long:
+            raise InvalidTicketFields(f"title must be at most {TICKET_TITLE_MAX_LENGTH} characters")
+
+        normalised_description = description.strip()
+        is_description_empty = normalised_description == ""
+        if is_description_empty:
+            raise InvalidTicketFields("description must not be empty")
+
+        is_known_priority = priority in TICKET_PRIORITIES
+        if not is_known_priority:
+            allowed_priorities = ", ".join(TICKET_PRIORITIES)
+            raise InvalidTicketFields(
+                f"'{priority}' is not a valid priority; allowed: {allowed_priorities}"
+            )
+
+        normalised_email = requester_email.strip()
+        is_email_too_long = len(normalised_email) > REQUESTER_EMAIL_MAX_LENGTH
+        if is_email_too_long:
+            raise InvalidTicketFields(
+                f"requester_email must be at most {REQUESTER_EMAIL_MAX_LENGTH} characters"
+            )
+
+        # A minimal shape check: something before and after one `@`. Real address
+        # validation is out of scope; the seed data uses invented `.example` addresses.
+        local_part, separator, domain_part = normalised_email.partition("@")
+        is_address_shaped = separator == "@" and local_part != "" and domain_part != ""
+        if not is_address_shaped:
+            raise InvalidTicketFields("requester_email must look like an e-mail address")
+
+    def create(
+        self, tenant_id: str, title: str, description: str, priority: str, requester_email: str
+    ) -> Ticket:
+        """Insert a new open ticket owned by `tenant_id` and commit.
+
+        The tenant is the caller's, never an argument the model supplies, so a ticket
+        can only ever be created within the caller's own tenant. The fields are
+        validated first, so an invalid request leaves no trace. The status is always
+        `DEFAULT_TICKET_STATUS`.
+
+        Args:
+            tenant_id: the caller's tenant, taken from the request, never from a model.
+            title: the ticket's title.
+            description: the ticket's text.
+            priority: one of `TICKET_PRIORITIES`.
+            requester_email: the address of the person the ticket is for.
+
+        Returns:
+            The new ticket, with its id.
+
+        Raises:
+            InvalidTicketFields: a field is empty, too long or outside its allowed set.
+        """
+        self.validate_new_ticket(title, description, priority, requester_email)
+
+        ticket = Ticket(
+            tenant_id=tenant_id,
+            title=title.strip(),
+            description=description.strip(),
+            status=DEFAULT_TICKET_STATUS,
+            priority=priority,
+            requester_email=requester_email.strip(),
+        )
+        self._session.add(ticket)
+        self._session.commit()
+
+        return ticket
 
     def list_for_tenant(self, tenant_id: str) -> list[Ticket]:
         """Return every ticket of `tenant_id`, oldest first.

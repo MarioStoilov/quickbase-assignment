@@ -195,19 +195,23 @@ produced no text stores no assistant message.
 ## Tools and the response gate
 
 The model reaches the ticket store only through the tools in `tools/`, each in its own
-sub-package with its own constants: `search_tickets` (a `query`) and `mutate_ticket`
-(`ticket_id`, `action` of update or delete, and `fields` for an update). A tool's
-argument schema never contains a tenant or a conversation. Those come from a
-`ToolContext` the loop builds from the conversation the request was authorised
-against, so the model cannot name a tenant, and every repository call inside a tool
-carries the caller's tenant id.
+sub-package with its own constants: `search_tickets` (a `query`), `mutate_ticket`
+(`ticket_id`, `action` of update or delete, and `fields` for an update) and
+`create_ticket` (`title`, `description`, an optional `priority` defaulting to medium,
+and `requester_email`, which is required because the person chatting has no identity
+beyond the tenant, so the model asks for it). A tool's argument schema never contains
+a tenant or a conversation. Those come from a `ToolContext` the loop builds from the
+conversation the request was authorised against, so the model cannot name a tenant,
+every repository call inside a tool carries the caller's tenant id, and a created
+ticket lands in the caller's tenant and nowhere else.
 
 A tool declares `response_options`. Empty means it runs as soon as its arguments
 validate; `search_tickets` is such a tool. Non-empty means the tool cannot run on the
 model's word: the loop stores the model's turn, sets the conversation's status to
 `awaiting_tool_response` with the call id, streams a `data-tool-response-required` part
-naming the options, and ends the stream. `mutate_ticket` offers `approve` and
-`reject`. While frozen, `POST /api/chat/{id}` answers 409 naming the pending call.
+naming the options, and ends the stream. `mutate_ticket` and `create_ticket` offer
+`approve` and `reject`. While frozen, `POST /api/chat/{id}` answers 409 naming the
+pending call.
 The person answers through `POST /api/chat/{id}/tool-calls/{call_id}/response` with
 `{"option": ...}`; only the option travels, the arguments that run are the ones stored
 when the model made the call. A call id that is not the pending one, including a
@@ -220,7 +224,12 @@ is unfrozen, and the loop continues so the model reports the outcome.
 the fields against the repository's rules, and then that the ticket exists within the
 caller's tenant. A ticket of another tenant, such as the brief's #47, fails with the
 same not-found error as a missing one: the model is told, no prompt appears, and the
-conversation stays active. Calls are handled one at a time in the model's order, so a
+conversation stays active. For `create_ticket` it checks the fields against the
+repository's rules for a new ticket (non-empty title and description, a known
+priority, an address-shaped e-mail), so a malformed proposal never reaches the person.
+`create_ticket` was added after the frontend was finished and needed no frontend
+change: the trace and the dialog show its name, arguments and options from the
+stream alone. Calls are handled one at a time in the model's order, so a
 turn that proposes several changes waits on the first, then the next after each
 answer; the model is called again only when every call of its turn has a result. The
 number of model calls per request is bounded by `TICKET_AGENT_MAX_TOOL_ROUNDS`.
@@ -298,7 +307,7 @@ ticket_agent/
 │   ├── llm.py             default model, finish reasons, retry settings, signature key
 │   ├── seed.py            seeded tenant slugs and the target foreign ticket id
 │   ├── system_prompt.py   the system prompt as commented paragraphs (not a security boundary)
-│   ├── tickets.py         statuses, priorities, search limit, mutable fields
+│   ├── tickets.py         statuses, priorities, defaults and widths of a new ticket, search limit, mutable fields
 │   ├── tools.py           what every tool shares: the error key, unknown-tool and round-limit texts
 │   └── ui_stream.py       stream header, part types and field names of the AI SDK protocol
 ├── db/                    storage plumbing
@@ -319,12 +328,13 @@ ticket_agent/
 ├── tenants/
 │   └── repository.py      tenant lookups
 ├── tickets/
-│   └── repository.py      TicketRepository: every method takes tenant_id; foreign == missing
+│   └── repository.py      TicketRepository: every method takes tenant_id; foreign == missing; create lands in the caller's tenant
 ├── tools/                 what the model may call; one sub-package per tool with its own constants
 │   ├── base.py            Tool, ToolContext (tenant and conversation, never model input), ToolError
 │   ├── registry.py        ToolRegistry: register, get, declarations
 │   ├── search_tickets/    the read-only tool, no response options
-│   └── mutate_ticket/     update or delete, options approve and reject; ownership checked in validate
+│   ├── mutate_ticket/     update or delete, options approve and reject; ownership checked in validate
+│   └── create_ticket/     new open ticket in the caller's tenant, options approve and reject
 └── utils/                 developer utilities outside the running system
     ├── db/
     │   ├── seed_data.py   the seed rows and their injection payloads
