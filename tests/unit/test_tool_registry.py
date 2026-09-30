@@ -2,14 +2,12 @@
 
 import pytest
 
+from tests.constants.tools import DEFAULT_TOOL_NAMES
 from ticket_agent.constants.tools import UNKNOWN_TOOL_ERROR
 from ticket_agent.tools import build_default_registry
 from ticket_agent.tools.base import ToolError
 from ticket_agent.tools.registry import ToolRegistry
 from ticket_agent.tools.search_tickets import SearchTicketsTool
-
-# The tools the application registers, in registration order.
-DEFAULT_TOOL_NAMES = ["search_tickets", "mutate_ticket", "create_ticket"]
 
 
 def test_default_registry_declares_the_three_tools_in_order() -> None:

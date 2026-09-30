@@ -386,6 +386,7 @@ against the running system.
 ```
 tests/
 ├── conftest.py            per-test database, scripted provider, started application, HTTP client
+├── constants/             every test-only constant, by topic: seed facts, fixture values, provider fakes, tools
 ├── fakes/                 the scripted model provider
 ├── helpers/               scripted turn builders, stream parser, HTTP calls
 ├── unit/                  one module at a time: repositories, store, serialisation, registry,

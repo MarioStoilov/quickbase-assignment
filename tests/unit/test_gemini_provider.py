@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 import pytest
 from google.genai import errors, types
 
+from tests.constants.provider import FAKE_API_KEY, FAKE_MODEL_ID
 from ticket_agent.constants.llm import (
     FINISH_REASON_STOP,
     FINISH_REASON_TOOL_CALLS,
@@ -17,12 +18,6 @@ from ticket_agent.llm.events import TextDelta, ToolCallRequest, TurnFinished
 from ticket_agent.llm.gemini import provider as provider_module
 from ticket_agent.llm.gemini.provider import GeminiProvider
 from ticket_agent.llm.provider import ModelProviderError
-
-# A key that is never sent anywhere: the fake client replaces the real one.
-FAKE_API_KEY = "test-key"
-
-# The model id the fake client should be asked for.
-FAKE_MODEL_ID = "fake-model"
 
 
 def transient_error() -> errors.APIError:

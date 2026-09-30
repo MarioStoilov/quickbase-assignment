@@ -5,6 +5,8 @@ from pathlib import Path
 import httpx
 import pytest
 
+from tests.constants.fixtures import SMALL_ROUND_BOUND
+from tests.constants.provider import CALL_STATE, TURN_STATE
 from tests.fakes.scripted_provider import ScriptedProvider
 from tests.helpers.requests import (
     create_conversation,
@@ -28,13 +30,6 @@ from ticket_agent.llm.conversation import AssistantMessage, ToolResultMessage, U
 from ticket_agent.llm.events import TextDelta, ToolCallRequest
 from ticket_agent.llm.provider import ModelProviderError
 from ticket_agent.settings import Settings
-
-# Opaque state the fake attaches to a call and a turn, to check it comes back.
-CALL_STATE = {"thought_signature": "call-signature"}
-TURN_STATE = {"thought_signature": "turn-signature"}
-
-# A round bound small enough to hit with two scripted tool turns.
-SMALL_ROUND_BOUND = 2
 
 
 @pytest.mark.anyio

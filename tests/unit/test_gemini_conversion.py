@@ -2,6 +2,7 @@
 
 from google.genai import types
 
+from tests.constants.provider import RAW_SIGNATURE
 from ticket_agent.llm.conversation import (
     AssistantMessage,
     ToolCall,
@@ -11,9 +12,6 @@ from ticket_agent.llm.conversation import (
 )
 from ticket_agent.llm.gemini.conversion import config_for_turn, contents_from_history
 from ticket_agent.llm.gemini.signatures import signature_from_state, state_from_signature
-
-# A signature as the SDK would hand it over.
-RAW_SIGNATURE = b"\x00\x01signature"
 
 
 def test_config_declares_tools_and_disables_automatic_calling() -> None:

@@ -3,12 +3,9 @@
 import httpx
 import pytest
 
+from tests.constants.seed import ACME_TICKET_IDS, GLOBEX_TICKET_IDS
 from tests.helpers.requests import list_ticket_ids, tenant_headers
 from ticket_agent.constants.seed import ACME_TENANT_ID, GLOBEX_TENANT_ID
-
-# The seed ids per tenant.
-ACME_TICKET_IDS = [1, 2, 3, 4, 5, 6]
-GLOBEX_TICKET_IDS = [42, 43, 44, 45, 46, 47]
 
 
 @pytest.mark.anyio

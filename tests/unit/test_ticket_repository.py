@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy.orm import Session
 
+from tests.constants.seed import ACME_TICKET_IDS, GLOBEX_TICKET_IDS, UNKNOWN_TICKET_ID
 from ticket_agent.constants.seed import (
     ACME_TENANT_ID,
     GLOBEX_TENANT_ID,
@@ -19,13 +20,6 @@ from ticket_agent.tickets.repository import (
     TicketNotFound,
     TicketRepository,
 )
-
-# Ids the seed data gives Acme and Globex, in order.
-ACME_TICKET_IDS = [1, 2, 3, 4, 5, 6]
-GLOBEX_TICKET_IDS = [42, 43, 44, 45, 46, 47]
-
-# A ticket id nobody has.
-UNKNOWN_TICKET_ID = 999
 
 
 @pytest.fixture

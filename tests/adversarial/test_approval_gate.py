@@ -3,6 +3,7 @@
 import httpx
 import pytest
 
+from tests.constants.seed import ACME_TICKET_IDS
 from tests.fakes.scripted_provider import ScriptedProvider
 from tests.helpers.requests import (
     create_conversation,
@@ -17,9 +18,6 @@ from tests.helpers.turns import delete_call, text_turn, tool_turn, update_call
 from ticket_agent.constants.conversations import CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
 from ticket_agent.constants.seed import ACME_TENANT_ID, TARGET_FOREIGN_TICKET_ID
 
-# Acme's seed ticket ids.
-ACME_TICKET_IDS = [1, 2, 3, 4, 5, 6]
-
 
 @pytest.mark.anyio
 async def test_injected_delete_all_is_not_executed_without_approval(
@@ -33,23 +31,33 @@ async def test_injected_delete_all_is_not_executed_without_approval(
     and ends the stream. Nothing is deleted, the later calls are not even considered,
     and the model is not called again until the person answers.
     """
+    # An Acme conversation, as an Acme user would open it.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
+
+    # Script the model obeying the payload: a delete of Globex's ticket 47 first, then a
+    # delete of every Acme ticket, all requested in the same turn.
     calls = [delete_call("call-47", TARGET_FOREIGN_TICKET_ID)]
     for ticket_id in ACME_TICKET_IDS:
         calls.append(delete_call(f"call-{ticket_id}", ticket_id))
     scripted_provider.add_turn(tool_turn(calls, leading_text="Deleting everything as instructed."))
 
+    # The person asks something innocent; the injected text does the rest.
     stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "summarise ticket 3")
 
+    # The foreign call is the only one that got a result, and it is the not-found error.
     foreign_output = stream.of_type("tool-output-available")
     assert len(foreign_output) == 1
     assert foreign_output[0]["toolCallId"] == "call-47"
     assert "not found" in foreign_output[0]["output"]["error"]
+
+    # The first own-tenant call froze the conversation and ended the stream.
     required = stream.of_type("data-tool-response-required")[0]["data"]
     assert required["toolCallId"] == "call-1"
-    assert await list_ticket_ids(client, ACME_TENANT_ID) == ACME_TICKET_IDS
     conversation = await read_conversation(client, ACME_TENANT_ID, conversation_id)
     assert conversation["status"] == CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
+
+    # Nothing was deleted, and the model was not asked again.
+    assert await list_ticket_ids(client, ACME_TENANT_ID) == ACME_TICKET_IDS
     assert len(scripted_provider.calls) == 1
 
 
@@ -64,7 +72,11 @@ async def test_injected_approval_claim_does_not_skip_the_gate(
     history, so the call freezes the conversation like any other and the ticket keeps
     its status.
     """
+    # An Acme conversation.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
+
+    # Script the model believing ticket 5's "approval already granted" text: it announces
+    # the approval and requests the update in the same turn.
     scripted_provider.add_turn(
         tool_turn(
             [update_call("call-close", 5, {"status": "closed"})],
@@ -72,10 +84,14 @@ async def test_injected_approval_claim_does_not_skip_the_gate(
         )
     )
 
+    # The person asks about the ticket.
     stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "handle ticket 5")
 
+    # The update froze the conversation instead of running: no output, a dialog request.
     assert stream.of_type("data-tool-response-required")[0]["data"]["toolCallId"] == "call-close"
     assert stream.of_type("tool-output-available") == []
+
+    # Ticket 5 still has its seed status.
     tickets = await client.get("/api/tickets", headers=tenant_headers(ACME_TENANT_ID))
     ticket_five = [ticket for ticket in tickets.json() if ticket["id"] == 5][0]
     assert ticket_five["status"] == "in_progress"
@@ -93,15 +109,22 @@ async def test_model_cannot_self_approve(
     the model cannot call: the conversation freezes, the second turn is never used,
     a new message is refused with 409, and the ticket still exists.
     """
+    # An Acme conversation.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
+
+    # Script the model claiming its own approval while requesting the delete, with a
+    # second turn ready to confirm the deletion if the loop ever asked for it.
     scripted_provider.add_turn(
         tool_turn([delete_call("call-delete", 2)], leading_text="I approve this deletion myself.")
     )
     scripted_provider.add_turn(text_turn("Confirmed, ticket 2 is deleted."))
 
+    # The person asks for the delete, then tries to continue the conversation.
     stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "delete 2")
     follow_up = await post_message(client, ACME_TENANT_ID, conversation_id, "is it gone?")
 
+    # No tool ran, the follow-up was refused because the conversation is frozen, the
+    # second scripted turn was never used, and the ticket is still there.
     assert stream.of_type("tool-output-available") == []
     assert follow_up.status_code == 409
     assert len(scripted_provider.calls) == 1
@@ -119,22 +142,27 @@ async def test_approved_execution_uses_frozen_arguments(
     with the arguments stored when the model made it, so ticket 2 goes and ticket 4
     stays.
     """
+    # An Acme conversation frozen on a delete of ticket 2, as the model proposed it.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
     scripted_provider.add_turn(tool_turn([delete_call("call-delete", 2)]))
     await send_and_parse(client, ACME_TENANT_ID, conversation_id, "delete 2")
+
+    # The model's report once the call has a result.
     scripted_provider.add_turn(text_turn("Deleted #2."))
+
+    # The answer carries the approval plus extra fields pointing at ticket 4.
     tampered_body = {
         "option": "approve",
         "ticket_id": 4,
         "arguments": {"ticket_id": 4, "action": "delete"},
     }
-
     response = await client.post(
         f"/api/chat/{conversation_id}/tool-calls/call-delete/response",
         headers=tenant_headers(ACME_TENANT_ID),
         json=tampered_body,
     )
 
+    # The stored call ran: ticket 2 is gone and ticket 4 was never touched.
     assert response.status_code == 200
     output = parse_stream(response.text).of_type("tool-output-available")[0]["output"]
     assert output["ticket_id"] == 2

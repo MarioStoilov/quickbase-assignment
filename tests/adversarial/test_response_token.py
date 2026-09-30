@@ -29,6 +29,8 @@ async def test_tool_response_cannot_be_given_by_another_tenant_or_for_another_ca
     pending id is accepted. After the real approval they replay it: 409 again, since
     the conversation is no longer frozen. The delete runs exactly once.
     """
+    # Two Acme conversations, each frozen on a delete of a different ticket, so that a
+    # genuine call id from one can be tried against the other.
     first_id = await create_conversation(client, ACME_TENANT_ID)
     second_id = await create_conversation(client, ACME_TENANT_ID)
     scripted_provider.add_turn(tool_turn([delete_call("call-first", 1)]))
@@ -36,21 +38,30 @@ async def test_tool_response_cannot_be_given_by_another_tenant_or_for_another_ca
     scripted_provider.add_turn(tool_turn([delete_call("call-second", 2)]))
     await send_and_parse(client, ACME_TENANT_ID, second_id, "delete 2")
 
+    # As Globex, approve the first conversation's call; as Acme, approve the first
+    # conversation with the second conversation's call id.
     by_globex = await respond_to_tool_call(
         client, GLOBEX_TENANT_ID, first_id, "call-first", "approve"
     )
     other_call = await respond_to_tool_call(
         client, ACME_TENANT_ID, first_id, "call-second", "approve"
     )
+
+    # The foreign tenant gets not-found, the wrong call id gets the pending-call
+    # refusal, and ticket 1 is still there.
     assert by_globex.status_code == 404
     assert by_globex.json() == {"detail": CONVERSATION_NOT_FOUND_DETAIL}
     assert other_call.status_code == 409
     assert other_call.json() == {"detail": NO_SUCH_PENDING_CALL_DETAIL}
     assert 1 in await list_ticket_ids(client, ACME_TENANT_ID)
 
+    # The genuine approval by the owner, followed by a replay of the same answer.
     scripted_provider.add_turn(text_turn("Deleted #1."))
     genuine = await respond_to_tool_call(client, ACME_TENANT_ID, first_id, "call-first", "approve")
     replay = await respond_to_tool_call(client, ACME_TENANT_ID, first_id, "call-first", "approve")
+
+    # The genuine answer ran the delete once; the replay was refused; ticket 2, pending
+    # in the other conversation, is untouched.
     assert genuine.status_code == 200
     assert replay.status_code == 409
     remaining_ids = await list_ticket_ids(client, ACME_TENANT_ID)

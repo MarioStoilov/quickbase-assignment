@@ -3,6 +3,7 @@
 import pytest
 from sqlalchemy.orm import Session
 
+from tests.constants.fixtures import UUID_HEX_LENGTH
 from ticket_agent.agent.tenant_conversations import (
     ConversationNotFound,
     TenantConversationStore,
@@ -18,9 +19,6 @@ from ticket_agent.llm.conversation import (
     ToolResultMessage,
     UserMessage,
 )
-
-# Length of the hex form of a UUID, which is what `create` generates.
-UUID_HEX_LENGTH = 32
 
 
 @pytest.fixture

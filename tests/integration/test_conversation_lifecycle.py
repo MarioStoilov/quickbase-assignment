@@ -3,6 +3,7 @@
 import httpx
 import pytest
 
+from tests.constants.fixtures import UUID_HEX_LENGTH
 from tests.fakes.scripted_provider import ScriptedProvider
 from tests.helpers.requests import (
     create_conversation,
@@ -19,9 +20,6 @@ from ticket_agent.constants.conversations import (
     CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE,
 )
 from ticket_agent.constants.seed import ACME_TENANT_ID, GLOBEX_TENANT_ID
-
-# Length of the hex form of a UUID, which is what the server generates.
-UUID_HEX_LENGTH = 32
 
 
 @pytest.mark.anyio

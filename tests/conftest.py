@@ -15,18 +15,13 @@ from fastapi import FastAPI
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from tests.constants.fixtures import TEST_BASE_URL, TEST_DATABASE_FILE_NAME
 from tests.fakes.scripted_provider import ScriptedProvider
 from ticket_agent.app import create_app
 from ticket_agent.cli import seed_database
 from ticket_agent.db.engine import create_database_engine, create_session_factory
 from ticket_agent.db.schema import create_schema
 from ticket_agent.settings import Settings
-
-# Name of the per-test database file inside pytest's temporary directory.
-TEST_DATABASE_FILE_NAME = "tickets-test.db"
-
-# Base URL the ASGI transport answers under; never dialled.
-TEST_BASE_URL = "http://testserver"
 
 
 @pytest.fixture

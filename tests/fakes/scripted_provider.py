@@ -12,13 +12,10 @@ from collections import deque
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 
+from tests.constants.provider import OUT_OF_TURNS_MESSAGE
 from ticket_agent.llm.conversation import Message, ToolDeclaration
 from ticket_agent.llm.events import ModelEvent
 from ticket_agent.llm.provider import ModelProviderError
-
-# Error raised when the loop calls the model more often than the test scripted; it
-# surfaces as a provider error in the stream, which makes the mismatch visible.
-OUT_OF_TURNS_MESSAGE = "the scripted provider has no turn left for this call"
 
 # One scripted model call: the events to yield, with an exception among them raised at
 # that point, or the error to raise instead of streaming anything.

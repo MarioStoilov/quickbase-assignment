@@ -3,12 +3,10 @@
 import httpx
 import pytest
 
+from tests.constants.seed import UNKNOWN_TENANT_ID
 from tests.helpers.requests import tenant_headers
 from ticket_agent import __version__
 from ticket_agent.constants.auth import UNAUTHORISED_DETAIL
-
-# A tenant slug that is not seeded.
-UNKNOWN_TENANT_ID = "initech"
 
 
 @pytest.mark.anyio
