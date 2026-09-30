@@ -71,9 +71,11 @@ The frontend registers no tool. Whatever the backend's registry holds is traced 
 gated from the stream alone:
 
 - The trace box (`src/tools/ToolTrace.tsx`) is assistant-ui's fallback component for
-  every tool. It shows the name and arguments from the `tool-input-available` part and
-  the result from `tool-output-available`, or "waiting for your answer" while there
-  is none. A result carrying the backend's `error` key is shown in red.
+  every tool. It is collapsed by default: the summary line shows the tool name and
+  the call's state (running, waiting for your answer, done, failed), and a click
+  reveals the arguments from the `tool-input-available` part and the result from
+  `tool-output-available`. A result carrying the backend's `error` key is shown in
+  red and the state reads "Failed".
 - The dialog (`src/tools/ToolResponseModal.tsx`) is driven by the backend's custom
   `data-tool-response-required` part, which names the call, the tool and the options.
   It renders one button per option, so a tool offering options other than approve and

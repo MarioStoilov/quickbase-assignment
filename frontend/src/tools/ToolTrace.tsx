@@ -2,7 +2,10 @@
  * The trace of one tool call: its name, its arguments, and its result or its state.
  *
  * Registered once as the fallback for every tool, so a tool added to the backend is
- * traced without any change here. Nothing in this component knows a tool name.
+ * traced without any change here. Nothing in this component knows a tool name. The
+ * box is collapsed by default so the chat stays readable; the summary line always
+ * shows the tool name and the call's state, and a click reveals the arguments and
+ * the result.
  */
 
 import type { ToolCallMessagePartProps } from "@assistant-ui/react";
@@ -11,6 +14,8 @@ import type { ReactElement } from "react";
 import { TOOL_RESULT_ERROR_KEY } from "../constants/stream";
 import {
   TOOL_TRACE_ARGUMENTS_LABEL,
+  TOOL_TRACE_DONE_TEXT,
+  TOOL_TRACE_FAILED_TEXT,
   TOOL_TRACE_HEADING,
   TOOL_TRACE_RESULT_LABEL,
   TOOL_TRACE_RUNNING_TEXT,
@@ -65,6 +70,24 @@ export function ToolTrace(props: ToolTraceProps): ReactElement {
   const isError = hasResult && isErrorResult(result);
   const argumentsText = formatJson(args);
 
+  // The state word sits in the always-visible summary line, so a collapsed box still
+  // tells whether the call ran, failed, waits for the person, or is in flight.
+  let stateText: string;
+  let stateClassName: string;
+  if (isError) {
+    stateText = TOOL_TRACE_FAILED_TEXT;
+    stateClassName = "tool-trace-state tool-trace-state-error";
+  } else if (hasResult) {
+    stateText = TOOL_TRACE_DONE_TEXT;
+    stateClassName = "tool-trace-state";
+  } else if (isWaiting) {
+    stateText = TOOL_TRACE_WAITING_TEXT;
+    stateClassName = "tool-trace-state tool-trace-state-waiting";
+  } else {
+    stateText = TOOL_TRACE_RUNNING_TEXT;
+    stateClassName = "tool-trace-state";
+  }
+
   let resultElement: ReactElement;
   if (hasResult) {
     const resultText = formatJson(result);
@@ -72,21 +95,24 @@ export function ToolTrace(props: ToolTraceProps): ReactElement {
       ? "tool-trace-result tool-trace-error"
       : "tool-trace-result";
     resultElement = <pre className={resultClassName}>{resultText}</pre>;
-  } else if (isWaiting) {
-    resultElement = <p className="tool-trace-state">{TOOL_TRACE_WAITING_TEXT}</p>;
   } else {
-    resultElement = <p className="tool-trace-state">{TOOL_TRACE_RUNNING_TEXT}</p>;
+    resultElement = <p className="tool-trace-pending">{stateText}</p>;
   }
 
   return (
-    <section className="tool-trace">
-      <header className="tool-trace-heading">
-        {TOOL_TRACE_HEADING}: <code>{toolName}</code>
-      </header>
-      <p className="tool-trace-label">{TOOL_TRACE_ARGUMENTS_LABEL}</p>
-      <pre className="tool-trace-arguments">{argumentsText}</pre>
-      <p className="tool-trace-label">{TOOL_TRACE_RESULT_LABEL}</p>
-      {resultElement}
-    </section>
+    <details className="tool-trace">
+      <summary className="tool-trace-summary">
+        <span className="tool-trace-heading">
+          {TOOL_TRACE_HEADING}: <code>{toolName}</code>
+        </span>
+        <span className={stateClassName}>{stateText}</span>
+      </summary>
+      <div className="tool-trace-body">
+        <p className="tool-trace-label">{TOOL_TRACE_ARGUMENTS_LABEL}</p>
+        <pre className="tool-trace-arguments">{argumentsText}</pre>
+        <p className="tool-trace-label">{TOOL_TRACE_RESULT_LABEL}</p>
+        {resultElement}
+      </div>
+    </details>
   );
 }

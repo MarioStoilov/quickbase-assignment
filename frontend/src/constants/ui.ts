@@ -45,11 +45,19 @@ export const TOOL_TRACE_ARGUMENTS_LABEL = "Arguments";
 // Label above the result in the trace box.
 export const TOOL_TRACE_RESULT_LABEL = "Result";
 
-// Shown in place of the result while the tool waits for the person's answer.
+// State word in the trace summary, and in place of the result, while the tool waits
+// for the person's answer.
 export const TOOL_TRACE_WAITING_TEXT = "Waiting for your answer";
 
-// Shown in place of the result while the tool runs or its result is still in flight.
+// State word in the trace summary, and in place of the result, while the tool runs or
+// its result is still in flight.
 export const TOOL_TRACE_RUNNING_TEXT = "Running…";
+
+// State word in the trace summary once the tool has a result that is not an error.
+export const TOOL_TRACE_DONE_TEXT = "Done";
+
+// State word in the trace summary once the tool has a result carrying the error key.
+export const TOOL_TRACE_FAILED_TEXT = "Failed";
 
 // Heading of the modal that asks the person to answer a tool call.
 export const TOOL_RESPONSE_MODAL_HEADING = "The agent wants to run a tool";

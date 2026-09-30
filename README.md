@@ -250,7 +250,8 @@ for a conversation, the two streaming routes for messages and tool responses, an
 `GET /api/chat/{id}` to rebuild the chat after a reload, pending call included.
 
 The frontend registers no tool. Every tool call in the stream is shown by one generic
-trace box (name, arguments, result or waiting state), and every
+trace box (collapsed to the name and state by default; expanded, the arguments and
+the result), and every
 `data-tool-response-required` part opens one generic dialog with a button per offered
 option. Adding a tool to the backend's registry needs no frontend change. The
 frontend README describes its modules and the one stream detail its transport

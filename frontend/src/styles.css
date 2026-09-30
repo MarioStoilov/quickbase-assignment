@@ -180,14 +180,54 @@ code {
 
 .tool-trace {
   margin: 8px 0;
-  padding: 8px 10px;
   border: 1px solid var(--colour-border);
   border-radius: var(--radius);
   background: var(--colour-surface);
 }
 
+.tool-trace-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-trace-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-trace-summary::before {
+  content: "▸";
+  color: var(--colour-muted);
+}
+
+.tool-trace[open] > .tool-trace-summary::before {
+  content: "▾";
+}
+
 .tool-trace-heading {
   font-weight: 600;
+}
+
+.tool-trace-state {
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--colour-muted);
+}
+
+.tool-trace-state-waiting {
+  color: var(--colour-accent);
+}
+
+.tool-trace-state-error {
+  color: var(--colour-error);
+}
+
+.tool-trace-body {
+  padding: 0 10px 8px;
+  border-top: 1px solid var(--colour-border);
 }
 
 .tool-trace-label {
@@ -212,7 +252,7 @@ code {
   background: var(--colour-error-background);
 }
 
-.tool-trace-state {
+.tool-trace-pending {
   margin: 0;
   font-style: italic;
   color: var(--colour-muted);
