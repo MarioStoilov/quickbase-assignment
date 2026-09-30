@@ -107,7 +107,10 @@ class TenantAuthMiddleware:
             await rejection(scope, receive, send)
             return
 
-        scope["state"][TENANT_STATE_KEY] = tenant
+        # `state` is optional in an ASGI scope: uvicorn provides it, an in-process test
+        # transport may not, so it is created here when absent.
+        request_state = scope.setdefault("state", {})
+        request_state[TENANT_STATE_KEY] = tenant
         await self._app(scope, receive, send)
 
     async def _resolve_tenant(self, scope: Scope) -> Tenant | None:

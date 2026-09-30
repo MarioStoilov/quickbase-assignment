@@ -90,6 +90,7 @@ activating it by hand; every frontend target runs npm inside `frontend/`.
 make install                                    # uv sync, then npm ci in frontend/
 make lint                                       # ruff format --check and ruff check; eslint, prettier and tsc
 make format                                     # ruff format and auto-fixable lint rules; prettier and eslint --fix
+make test                                       # backend test suite with coverage; no network, no API key
 ```
 
 ### Database
@@ -364,6 +365,58 @@ Endpoints:
 | GET    | `/api/chat/{id}` | yes | the conversation with its stored messages |
 | POST   | `/api/chat/{id}` | yes | one user message in, one streamed reply; 409 while frozen |
 | POST   | `/api/chat/{id}/tool-calls/{call_id}/response` | yes | answer the pending call, stream the continuation |
+
+## Tests
+
+`make test` runs the backend suite with line coverage and fails below the threshold in
+`pyproject.toml` (80%; the suite sits at about 99%). It needs no network and no API
+key: every test gets its own SQLite file created through the same schema and seed code
+as `make init`, and the application is built through `create_app` with a scripted
+provider that replays model turns and records what it was sent. The developer
+utilities under `utils/` and the uvicorn entry point are excluded from the measured
+set. The frontend has no automated tests yet; it was verified in a headless browser
+against the running system.
+
+```
+tests/
+├── conftest.py            per-test database, scripted provider, started application, HTTP client
+├── fakes/                 the scripted model provider
+├── helpers/               scripted turn builders, stream parser, HTTP calls
+├── unit/                  one module at a time: repositories, store, serialisation, registry,
+│                          encoder, the three tools called directly with foreign tenants,
+│                          Gemini conversion, streaming and retries with a fake SDK client,
+│                          the CLI on a temporary file, startup refusals, settings
+├── integration/           the whole application through HTTP with only the model scripted:
+│                          auth and public paths, tickets, the conversation lifecycle and
+│                          list, streaming turns, refusals, provider failures, the round
+│                          bound, the freeze and the response route
+└── adversarial/           one named case per attack, each docstring saying what the
+                           attacker controls, what they try, and which rule stops them
+```
+
+The adversarial cases, the part of the suite that matters most:
+
+- `test_search_never_returns_other_tenant_tickets`: the model searches for Globex's
+  ticket 47 from an Acme conversation, by id and by wording; nothing of it appears.
+- `test_mutate_rejects_foreign_ticket_without_freezing_conversation`: a mutate call on
+  ticket 47 as Acme gets the not-found result, no dialog, and the conversation stays
+  active.
+- `test_injected_delete_all_is_not_executed_without_approval`: the model obeys ticket
+  3's payload and requests a delete of every id; the foreign id fails inline, the first
+  own id freezes the conversation, nothing is deleted.
+- `test_injected_approval_claim_does_not_skip_the_gate`: ticket 5's "approval already
+  granted" text; the update still freezes.
+- `test_model_cannot_self_approve`: the model claims it approved and stands ready to
+  confirm; nothing runs, a new message is refused with 409.
+- `test_approved_execution_uses_frozen_arguments`: the response body names another
+  ticket; the stored arguments run.
+- `test_conversation_of_other_tenant_is_not_found_for_read_post_list_or_response`,
+  `test_tool_response_cannot_be_given_by_another_tenant_or_for_another_call_or_twice`,
+  `test_unknown_tenant_is_rejected`, `test_create_ticket_lands_in_callers_tenant_only`.
+
+Writing the suite found one defect: the tenant middleware assumed every ASGI scope
+carries a `state` dictionary, which uvicorn provides and an in-process transport does
+not; it now creates one when absent.
 
 ## Known caveats
 

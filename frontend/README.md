@@ -135,6 +135,14 @@ markdown renderer) for the chat surface. The primitives are unstyled; every styl
 `styles.css`. The vendor SDK is touched in two modules only: the transport and the
 runtime hook.
 
+## Tests
+
+There are no automated frontend tests yet. The flows (login, list, chat, trace, dialog,
+reload while frozen, error line) were verified in a headless browser against the
+running backend. The backend suite (`make test` in the repository root) covers the
+API contract the frontend depends on, including the exact shape of
+`GET /api/chat/{id}` while a conversation is frozen.
+
 ## One protocol detail worth knowing
 
 The AI SDK continues the newest assistant message, instead of appending a new one,
