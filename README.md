@@ -19,7 +19,7 @@ The system is two services: the backend (the API, this directory) and the fronte
 port; the frontend forwards API calls to the backend.
 
 ```bash
-make install     # backend virtual environment and frontend dependencies, both locked
+make install     # checks the prerequisites, then backend and frontend dependencies, both locked
 make init        # create the SQLite schema and load the seed tenants and tickets
 make run-all     # start the API on http://127.0.0.1:8000 and the UI on http://localhost:5173
 ```
@@ -127,7 +127,8 @@ activating it by hand; every frontend target runs npm inside `frontend/`.
 ### Environment and code quality
 
 ```bash
-make install                                    # uv sync, npm ci in frontend/, and the git pre-commit hook
+make check-prerequisites                        # scripts/check_prerequisites.sh: PASS/FAIL per tool, fails if any is missing
+make install                                    # check prerequisites, uv sync, npm ci in frontend/, and the git pre-commit hook
 make lint                                       # ruff format --check and ruff check; eslint, prettier and tsc
 make format                                     # ruff format and auto-fixable lint rules; prettier and eslint --fix
 make test                                       # backend test suite with coverage; no network, no API key
@@ -299,6 +300,9 @@ application stores it as JSON in the message row and hands it back unchanged. Th
 provider is built once at startup, closed at shutdown, and stored on the application
 state; `create_app` accepts one from outside so tests can pass a scripted model and run
 without a key.
+
+Outside the package, `scripts/check_prerequisites.sh` is the one shell script: one
+function per tool check, run by `make check-prerequisites`.
 
 Module layout (`src/ticket_agent/`), with the rule that `constants/` holds every
 module-level constant, `settings.py` is the only module that reads the environment, and
