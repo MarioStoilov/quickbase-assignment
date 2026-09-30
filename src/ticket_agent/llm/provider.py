@@ -43,3 +43,10 @@ class ModelProvider(Protocol):
             ModelProviderError: the provider rejected or failed the request.
         """
         ...
+
+    async def aclose(self) -> None:
+        """Release whatever the provider holds open, such as HTTP connections.
+
+        Called once at application shutdown. A provider that holds nothing does nothing.
+        """
+        ...

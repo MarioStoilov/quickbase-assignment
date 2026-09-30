@@ -47,6 +47,9 @@ def create_app(
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         """Open the database, the model provider and the tool registry at startup.
 
+        At shutdown the provider is closed first, so its connections never outlive the
+        event loop, then the engine is disposed.
+
         Raises:
             DatabaseNotInitialised: the schema is missing; the message names `make init`.
             ModelNotConfigured: no provider was given and `GEMINI_API_KEY` is unset.
@@ -80,6 +83,7 @@ def create_app(
 
         yield
 
+        await provider.aclose()
         engine.dispose()
 
     application = FastAPI(

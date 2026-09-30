@@ -99,6 +99,14 @@ class GeminiProvider:
 
         yield finished
 
+    async def aclose(self) -> None:
+        """Close the SDK's HTTP client so no connection outlives the application.
+
+        Without this the client is closed by garbage collection, possibly after the
+        event loop is gone, which surfaces as an error at shutdown.
+        """
+        await self._client.aio.aclose()
+
     async def _open_stream_with_retries(
         self, contents: list[types.Content], config: types.GenerateContentConfig
     ) -> AsyncIterator[types.GenerateContentResponse]:

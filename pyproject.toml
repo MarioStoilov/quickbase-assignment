@@ -14,6 +14,8 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff",
 ]
 
@@ -31,3 +33,28 @@ src = ["src", "."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+# The test package imports like the application package, not like a dependency.
+known-first-party = ["ticket_agent", "tests"]
+
+[tool.pytest.ini_options]
+# Every test lives under tests/. The default run deselects the live-model tests, so
+# `make test` needs no network and no API key; `make test-live` selects them.
+testpaths = ["tests"]
+addopts = "-q -m 'not live_model'"
+markers = [
+    "live_model: sends real requests to the configured Gemini model; needs GEMINI_API_KEY and network",
+]
+
+[tool.coverage.run]
+# Measured over the installed package; the developer utilities (seed data, dump,
+# probe) and the uvicorn entry point are not part of the running system.
+source = ["ticket_agent"]
+omit = ["*/ticket_agent/utils/*", "*/ticket_agent/__main__.py"]
+
+[tool.coverage.report]
+# `make test` fails below this line coverage.
+fail_under = 80
+show_missing = true
+skip_covered = true
