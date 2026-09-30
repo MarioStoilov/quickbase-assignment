@@ -10,16 +10,26 @@ the prompt, and every mutation waits for an explicit click in the UI.
 
 - Python 3.12 or newer and [uv](https://docs.astral.sh/uv/).
 - SQLite (bundled with Python).
+- Node.js 20 or newer and npm, for the frontend.
 
 ## Setup
 
+The system is two services: the backend (the API, this directory) and the frontend
+(the browser client, [`frontend/`](frontend/README.md)). Each has its own process and
+port; the frontend forwards API calls to the backend.
+
 ```bash
-make install     # create the virtual environment with the locked dependencies
+make install     # backend virtual environment and frontend dependencies, both locked
 make init        # create the SQLite schema and load the seed tenants and tickets
-make run         # start the API on http://127.0.0.1:8000
+make run-all     # start the API on http://127.0.0.1:8000 and the UI on http://localhost:5173
 ```
 
-The server refuses to start until `make init` has been run against the configured
+Open http://localhost:5173, pick a tenant, and chat. Ctrl+C stops both. To run the
+services in separate terminals, `make run` starts the backend and `make frontend`
+builds and serves the frontend. The API alone can be driven with curl (see "Talking
+to the running server" below).
+
+The backend refuses to start until `make init` has been run against the configured
 database, and until `GEMINI_API_KEY` is set (next section); both failures name what is
 missing. `make init` refuses to overwrite an existing schema; `make reset-db` drops it
 and starts over. `make seed` loads the seed data into an existing empty schema. After
@@ -64,18 +74,22 @@ directory (see [`.env.example`](.env.example)).
 | `GEMINI_API_KEY`             | unset             | Google AI Studio key; required for model calls |
 | `TICKET_AGENT_GEMINI_MODEL_ID` | `gemini-3.5-flash-lite` | Gemini model every turn is sent to |
 | `TICKET_AGENT_MAX_TOOL_ROUNDS` | `8`               | Model calls per request; bounds runaway tool use |
+| `TICKET_AGENT_FRONTEND_PORT` | `5173`            | Port of the frontend service; read by the frontend only |
+
+The frontend also reads `TICKET_AGENT_HOST` and `TICKET_AGENT_PORT` to know where to
+forward API calls, so the two services agree from one `.env` file.
 
 ## Commands
 
-Every target runs through `uv`, so the locked environment is used without activating
-it by hand.
+Every backend target runs through `uv`, so the locked environment is used without
+activating it by hand; every frontend target runs npm inside `frontend/`.
 
 ### Environment and code quality
 
 ```bash
-make install                                    # uv sync: virtual environment + locked deps
-make lint                                       # ruff format --check and ruff check
-make format                                     # ruff format and auto-fixable lint rules
+make install                                    # uv sync, then npm ci in frontend/
+make lint                                       # ruff format --check and ruff check; eslint, prettier and tsc
+make format                                     # ruff format and auto-fixable lint rules; prettier and eslint --fix
 ```
 
 ### Database
@@ -90,7 +104,11 @@ make db-dump                                    # print tenants and tickets (ARG
 ### Running
 
 ```bash
+make run-all                                    # start the API server and the frontend service from one terminal
 make run                                        # start the API server
+make frontend                                   # build the frontend and serve it as its own service
+make frontend-dev                               # serve the frontend from source with hot reload
+make frontend-build                             # build the frontend bundle into frontend/dist only
 make llm-probe ARGS="hello"                     # send one message to the model and stream the reply, no server needed
 ```
 
@@ -130,7 +148,9 @@ routing, resolves the header to a tenant row and stores it in the request state,
 answers 401 with one message for a missing and an unknown header alike. Handlers receive
 the stored row through the typed `CallerTenant` accessor; nothing reads the header again
 and nothing takes a tenant id from the model's output. Paths outside `/api/` (the API
-docs, later the frontend bundle) are served to anyone.
+docs) are served to anyone. The frontend sends the header with every request after the
+person picks a tenant on its login screen; the backend knows nothing about the
+frontend.
 
 ## Seed data
 
@@ -213,10 +233,28 @@ is streamed through the provider interface, each tool call it makes is validated
 run through the registry with a context built from the conversation, and the model is
 called again with the results until a turn ends without calls, a tool needs the
 person's answer, or the round bound is hit. `api/ui_stream.py` encodes the loop's
-events as the AI SDK UI message stream that the frontend will consume: server-sent
+events as the AI SDK UI message stream that the frontend consumes: server-sent
 events `start`, `text-start`, `text-delta`, `text-end`, `tool-input-available`,
 `tool-output-available`, `data-tool-response-required`, `error`, `finish`, then
 `[DONE]`, under the header `x-vercel-ai-ui-message-stream: v1`.
+
+### Frontend
+
+The frontend is a separate service in [`frontend/`](frontend/README.md): Vite, React and
+TypeScript, with the Vercel AI SDK for the stream protocol and assistant-ui primitives
+for the chat surface. It has its own server and port and forwards `/api` calls to the
+backend, so the backend carries no static files, no CORS configuration and no knowledge
+of which client is talking to it; another frontend can be run against the same API in
+the same way. It calls `GET /api/tenants` for its login screen, `POST /api/chat/new`
+for a conversation, the two streaming routes for messages and tool responses, and
+`GET /api/chat/{id}` to rebuild the chat after a reload, pending call included.
+
+The frontend registers no tool. Every tool call in the stream is shown by one generic
+trace box (name, arguments, result or waiting state), and every
+`data-tool-response-required` part opens one generic dialog with a button per offered
+option. Adding a tool to the backend's registry needs no frontend change. The
+frontend README describes its modules and the one stream detail its transport
+handles.
 
 For tickets the same shape applies: the handler receives the tenant as `CallerTenant`,
 opens a `TicketRepository` and passes `tenant.id` to it, and the repository puts that id
