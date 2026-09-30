@@ -14,7 +14,14 @@ from tests.helpers.requests import (
     tenant_headers,
     user_message_body,
 )
-from tests.helpers.turns import create_call, delete_call, search_call, text_turn, tool_turn
+from tests.helpers.turns import (
+    create_call,
+    delete_call,
+    lookup_call,
+    search_call,
+    text_turn,
+    tool_turn,
+)
 from ticket_agent.constants.auth import UNAUTHORISED_DETAIL
 from ticket_agent.constants.conversations import (
     CONVERSATION_NOT_FOUND_DETAIL,
@@ -88,6 +95,34 @@ async def test_search_by_foreign_id_finds_only_the_own_ticket_that_mentions_it(
     # The only match is Acme's ticket 3.
     output = stream.of_type("tool-output-available")[0]["output"]
     assert [ticket["id"] for ticket in output["tickets"]] == [3]
+
+
+@pytest.mark.anyio
+async def test_lookup_by_foreign_id_returns_nothing(
+    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
+) -> None:
+    """The attacker controls the model's tool arguments (through an injected ticket text).
+
+    They make the model fetch Globex's ticket 47 by its number from an Acme
+    conversation. The lookup runs through the repository with the caller's tenant, so
+    it finds nothing, and the model is told the ticket does not exist for it.
+    """
+    # An Acme conversation.
+    conversation_id = await create_conversation(client, ACME_TENANT_ID)
+
+    # Script the model fetching the foreign ticket by number, then reporting.
+    scripted_provider.add_turn(tool_turn([lookup_call("c1", TARGET_FOREIGN_TICKET_ID)]))
+    scripted_provider.add_turn(text_turn("There is no ticket 47 here."))
+
+    # The person asks for ticket 47.
+    stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "show ticket 47")
+
+    # The lookup returned nothing, and nothing of ticket 47 reached the stream.
+    output = stream.of_type("tool-output-available")[0]["output"]
+    assert output == {"tickets": [], "count": 0}
+    stream_text = " ".join(str(part) for part in stream.parts)
+    for fragment in FOREIGN_SECRET_FRAGMENTS:
+        assert fragment not in stream_text
 
 
 @pytest.mark.anyio

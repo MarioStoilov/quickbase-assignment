@@ -5,7 +5,8 @@ per tenant conversation, a trace box for every tool call the model makes, and a
 blocking dialog for every tool call that needs the person's answer. It is its own
 service, separate from the backend in the parent directory: it has its own server and
 port, and the only thing the two share is the HTTP API described in the
-[root README](../README.md).
+[root README](../README.md), whose "Design" section says where tenant
+isolation and the approval gate are enforced; nothing here enforces either.
 
 ## Requirements
 

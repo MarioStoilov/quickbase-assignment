@@ -3,7 +3,8 @@
 `LiveConversation` drives one tenant conversation through the application's HTTP
 routes against the real model and records every turn: what the person sent, what the
 model answered, which tools it called with which arguments and results, and any
-mutation it proposed, which the runner always rejects. `LiveReport` collects the
+mutation it proposed together with the option the runner answered it with (reject
+unless the scenario asks for approval). `LiveReport` collects the
 scenarios of one run and writes them as Markdown.
 """
 
@@ -112,14 +113,18 @@ class LiveConversation:
         self._record = record
         self._conversation_id: str | None = None
 
-    async def send(self, text: str) -> RecordedTurn:
-        """Send one message, follow up on any proposed mutation, and record the turn.
+    async def send(self, text: str, proposal_answer: str = LIVE_RESPONSE_OPTION) -> RecordedTurn:
+        """Send one message, answer any proposed mutation, and record the turn.
 
-        A mutation the model proposes is rejected, so no live scenario ever changes a
-        ticket; the rejection and the model's reaction are part of the recorded turn.
+        By default a mutation the model proposes is rejected, so a scenario changes
+        nothing unless it says so; a scenario that wants the proposal carried out passes
+        the approve option. The answer given and the model's reaction are part of the
+        recorded turn.
 
         Args:
             text: what the person types.
+            proposal_answer: the option the runner picks when the model proposes a
+                mutation.
 
         Returns:
             The recorded turn.
@@ -141,10 +146,10 @@ class LiveConversation:
                 self._tenant_id,
                 self._conversation_id,
                 pending_call_id,
-                LIVE_RESPONSE_OPTION,
+                proposal_answer,
             )
             assert response.status_code == 200, response.text
-            self._mark_responded(turn, pending_call_id)
+            self._mark_responded(turn, pending_call_id, proposal_answer)
             continuation = parse_stream(response.text)
             self._absorb(continuation, turn)
             pending_call_id = self._pending_call_id(continuation)
@@ -200,17 +205,18 @@ class LiveConversation:
 
         return pending_call_id
 
-    def _mark_responded(self, turn: RecordedTurn, call_id: str) -> None:
-        """Note on the recorded call that the runner answered it.
+    def _mark_responded(self, turn: RecordedTurn, call_id: str, proposal_answer: str) -> None:
+        """Note on the recorded call which option the runner answered it with.
 
         Args:
             turn: the turn being recorded.
             call_id: the call that was answered.
+            proposal_answer: the option given.
         """
         for call in turn.tool_calls:
             is_match = call.call_id == call_id
             if is_match:
-                call.response_given = LIVE_RESPONSE_OPTION
+                call.response_given = proposal_answer
 
 
 @dataclass

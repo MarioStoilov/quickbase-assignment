@@ -11,3 +11,6 @@ TICKETS_RESULT_KEY = "tickets"
 
 # Key of the result field holding how many tickets were returned.
 COUNT_RESULT_KEY = "count"
+
+# Optional argument key naming one ticket to fetch by id instead of searching by text.
+TICKET_ID_ARGUMENT = "ticket_id"

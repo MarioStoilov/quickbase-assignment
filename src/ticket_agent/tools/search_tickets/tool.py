@@ -5,11 +5,14 @@ from typing import Any
 
 from ticket_agent.constants.tickets import SEARCH_RESULT_LIMIT
 from ticket_agent.db.models import Ticket
+from ticket_agent.tickets.repository import TicketNotFound
 from ticket_agent.tools.base import Tool, ToolContext
+from ticket_agent.tools.search_tickets.arguments import query_of, ticket_id_of
 from ticket_agent.tools.search_tickets.constants import (
     COUNT_RESULT_KEY,
     QUERY_ARGUMENT,
     SEARCH_TICKETS_TOOL_NAME,
+    TICKET_ID_ARGUMENT,
     TICKETS_RESULT_KEY,
 )
 
@@ -41,7 +44,11 @@ def ticket_summary(ticket: Ticket) -> dict[str, Any]:
 
 
 class SearchTicketsTool(Tool):
-    """Finds tickets of the calling tenant; runs without asking the person."""
+    """Finds tickets of the calling tenant by text or by id; runs without asking the person.
+
+    Both ways are scoped the same: the tenant comes from the context, so a lookup by
+    an id that belongs to another tenant finds nothing, exactly like a missing id.
+    """
 
     @property
     def name(self) -> str:
@@ -54,7 +61,9 @@ class SearchTicketsTool(Tool):
         return (
             "Search the tickets of the organisation you work for. Matches the query "
             "against ticket titles and descriptions; an empty query returns all of "
-            f"them. Returns at most {SEARCH_RESULT_LIMIT} tickets."
+            f"them. Returns at most {SEARCH_RESULT_LIMIT} tickets. To look one ticket up "
+            f"by its number, pass {TICKET_ID_ARGUMENT} instead of a query; a ticket that "
+            "does not exist gives an empty result."
         )
 
     @property
@@ -69,7 +78,14 @@ class SearchTicketsTool(Tool):
                         "Words to look for in ticket titles and descriptions. Pass an "
                         "empty string to list every ticket."
                     ),
-                }
+                },
+                TICKET_ID_ARGUMENT: {
+                    "type": "integer",
+                    "description": (
+                        "Number of one ticket to fetch, for example 2 for #2. When given, "
+                        "the query is ignored."
+                    ),
+                },
             },
             "required": [QUERY_ARGUMENT],
         }
@@ -87,28 +103,42 @@ class SearchTicketsTool(Tool):
         Args:
             arguments: what the model supplied.
             context: the tenant and conversation the call runs for.
+
+        Raises:
+            ToolError: a ticket id is given but is not a whole number.
         """
+        ticket_id_of(arguments)
 
     def execute(
         self, arguments: Mapping[str, Any], context: ToolContext, response: str | None
     ) -> Mapping[str, Any]:
-        """Search within the caller's tenant and return the matches.
+        """Search within the caller's tenant, or fetch one ticket of it, and return the matches.
 
-        The tenant id comes from `context`, never from `arguments`, so the query cannot
-        widen the search beyond the caller's own tickets.
+        The tenant id comes from `context`, never from `arguments`, so neither the query
+        nor the id can reach beyond the caller's own tickets. A lookup by an id that is
+        missing or belongs to another tenant returns an empty result, not an error, so
+        the model cannot tell the two apart.
 
         Args:
-            arguments: may hold `query`; anything else is ignored.
+            arguments: may hold `query` and `ticket_id`; anything else is ignored.
             context: the tenant and conversation the call runs for.
             response: always None; this tool asks for no response.
 
         Returns:
             The matching tickets and how many were returned.
         """
-        raw_query = arguments.get(QUERY_ARGUMENT, "")
-        query = str(raw_query)
+        ticket_id = ticket_id_of(arguments)
+        is_lookup_by_id = ticket_id is not None
 
-        tickets = context.ticket_repository.search(context.tenant_id, query)
+        if is_lookup_by_id:
+            try:
+                ticket = context.ticket_repository.get(context.tenant_id, ticket_id)
+                tickets = [ticket]
+            except TicketNotFound:
+                tickets = []
+        else:
+            query = query_of(arguments)
+            tickets = context.ticket_repository.search(context.tenant_id, query)
 
         ticket_summaries = []
         for ticket in tickets:

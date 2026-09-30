@@ -1,11 +1,16 @@
 # Every backend target runs through uv so the project's locked environment is used;
 # every frontend target runs npm inside `frontend/`. The two are separate services.
-.PHONY: install lint format test test-live init reset-db seed db-dump llm-probe run run-all frontend frontend-dev frontend-build
+.PHONY: check-prerequisites install lint format test test-live init reset-db seed db-dump llm-probe run run-all frontend frontend-dev frontend-build
 
-# Create the backend virtual environment with the locked dependencies, install the
-# frontend's locked dependencies, and point git at the repository's hooks so the unit
-# tests run before every commit.
-install:
+# Fail unless Python 3.12+, uv, Node.js 20+ and npm are installed; one PASS or FAIL
+# line per tool, the FAIL line naming what to install. Runs first in `make install`.
+check-prerequisites:
+	scripts/check_prerequisites.sh
+
+# Check the prerequisites, create the backend virtual environment with the locked
+# dependencies, install the frontend's locked dependencies, and point git at the
+# repository's hooks so the unit tests run before every commit.
+install: check-prerequisites
 	uv sync
 	cd frontend && npm ci
 	git config core.hooksPath .githooks
