@@ -44,11 +44,10 @@ async def test_tool_response_cannot_be_given_by_another_tenant(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
     """The attacker is a Globex user who knows an Acme conversation id and its pending
-    call id.
-
-    They approve the call as Globex. The conversation is looked up with the caller's
-    tenant before the call is considered, so the answer is 404 and the delete does
-    not run.
+    call id. They approve the call as Globex.
+    Result: The conversation is looked up with the Globex tenant before
+    the call is considered, so the answer is 404 since the conversation belongs to Acme.
+    The delete does not run.
     """
     # An Acme conversation frozen on a delete of ticket 1.
     conversation_id = await frozen_on_delete(client, scripted_provider, "call-first", 1)
@@ -68,10 +67,10 @@ async def test_tool_response_cannot_be_given_by_another_tenant(
 async def test_tool_response_cannot_be_given_with_another_conversations_call_id(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """The attacker is an Acme user who holds a genuine call id from one conversation.
-
-    They answer a different conversation with it. Only the call id stored as pending
-    on that conversation is accepted, so the answer is 409 and neither delete runs.
+    """
+    We are logged in as Acme. We have 2 conversations. We try to respond to a tool call
+    from conversation 1, while the tool call is for conversation 2.
+    Result: The tool response is rejected as it is not for the conversation where it was answered.
     """
     # Two Acme conversations, each frozen on its own delete.
     first_id = await frozen_on_delete(client, scripted_provider, "call-first", 1)
@@ -94,10 +93,9 @@ async def test_tool_response_cannot_be_given_with_another_conversations_call_id(
 async def test_tool_response_cannot_be_replayed(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """The attacker is an Acme user who resends an approval that already ran.
-
-    After the genuine approval the conversation is no longer frozen, so the replay is
-    refused with 409 and the delete ran exactly once.
+    """
+    We try to answer a tool call twice.
+    Result: We fail
     """
     # An Acme conversation frozen on a delete of ticket 1, and the model's report.
     conversation_id = await frozen_on_delete(client, scripted_provider, "call-first", 1)
