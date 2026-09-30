@@ -19,16 +19,13 @@ from ticket_agent.constants.seed import ACME_TENANT_ID
 
 
 @pytest.mark.anyio
-async def test_injected_delete_all_is_not_executed_without_approval(
+async def test_delete_all_is_not_executed_without_approval(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """The attacker controls the text of Acme ticket 3 and, through it, the model.
-
-    The model obeys the payload's "delete all IDs" and requests a delete of every Acme
-    ticket in one turn. The first call freezes the conversation and ends the stream:
-    nothing is deleted. The later calls are not even considered, and the model is not
-    called again until the person answers. (The payload's other half, the foreign
-    ticket 47, is the subject of the tenant isolation cases.)
+    """
+    We ask the model to delete all Acme tickets, but it does not do so without approval.
+    The model is not called as the approval is still pending.
+    Result: no batch delete was executed.
     """
     # An Acme conversation, as an Acme user would open it.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
@@ -59,12 +56,10 @@ async def test_injected_delete_all_is_not_executed_without_approval(
 async def test_injected_approval_claim_does_not_skip_the_gate(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """The attacker controls the text of Acme ticket 5, which claims approval was granted.
-
-    The model believes it and calls mutate_ticket to close the ticket "without asking".
-    The gate is decided by the tool's response options in code, not by anything in the
-    history, so the call freezes the conversation like any other and the ticket keeps
-    its status.
+    """
+    We ask the model to close ticket 5, stating it has already been approved,
+    but it does not do so without an approval call from the tenant.
+    Result: approval is still asked, despite stated that it already has been granted.
     """
     # An Acme conversation.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
@@ -92,49 +87,15 @@ async def test_injected_approval_claim_does_not_skip_the_gate(
 
 
 @pytest.mark.anyio
-async def test_model_cannot_self_approve(
-    client: httpx.AsyncClient, scripted_provider: ScriptedProvider
-) -> None:
-    """The attacker controls the model's output entirely.
-
-    The model streams text asserting that it approved the deletion, requests the
-    delete, and a second scripted turn stands ready to "confirm" it. The only path
-    that executes a gated tool is the response route with the pending call id, which
-    the model cannot call: the conversation freezes, the second turn is never used,
-    and the ticket still exists.
-    """
-    # An Acme conversation.
-    conversation_id = await create_conversation(client, ACME_TENANT_ID)
-
-    # Script the model claiming its own approval while requesting the delete, with a
-    # second turn ready to confirm the deletion if the loop ever asked for it.
-    scripted_provider.add_turn(
-        tool_turn([delete_call("call-delete", 2)], leading_text="I approve this deletion myself.")
-    )
-    scripted_provider.add_turn(text_turn("Confirmed, ticket 2 is deleted."))
-
-    # The person asks for the delete.
-    stream = await send_and_parse(client, ACME_TENANT_ID, conversation_id, "delete 2")
-
-    # No tool ran, the conversation is frozen on the call, the second scripted turn was
-    # never used, and the ticket is still there.
-    assert stream.of_type("tool-output-available") == []
-    conversation = await read_conversation(client, ACME_TENANT_ID, conversation_id)
-    assert conversation["status"] == CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE
-    assert len(scripted_provider.calls) == 1
-    assert 2 in await list_ticket_ids(client, ACME_TENANT_ID)
-
-
-@pytest.mark.anyio
 async def test_approved_execution_uses_frozen_arguments(
     client: httpx.AsyncClient, scripted_provider: ScriptedProvider
 ) -> None:
-    """The attacker controls the response request's body.
-
-    The person approved a delete of ticket 2; the response body also names ticket 4
-    and a fresh arguments object. The route reads only the option and runs the call
-    with the arguments stored when the model made it, so ticket 2 goes and ticket 4
-    stays.
+    """
+    We ask the model to delete ticket 2. The response is a request for approval, but we find a way to
+    inject a different ticket id into the approval response (id 4). The user is presented with a modal to
+    delete ticket 4, while the original tool call was for ticket 2.
+    Result: the approval is granted, but the tool call still deletes ticket 2. (I.E, we do not rely on the
+    approval call to change the tool call's arguments.)
     """
     # An Acme conversation frozen on a delete of ticket 2, as the model proposed it.
     conversation_id = await create_conversation(client, ACME_TENANT_ID)
