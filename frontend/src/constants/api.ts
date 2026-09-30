@@ -14,6 +14,9 @@ export const JSON_CONTENT_TYPE = "application/json";
 // Public path listing the seeded tenants for the login screen; needs no tenant header.
 export const TENANTS_PATH = "/api/tenants";
 
+// Path listing the calling tenant's conversations, newest first.
+export const CONVERSATIONS_PATH = "/api/chat";
+
 // Path that creates a conversation for the calling tenant and returns its id.
 export const NEW_CONVERSATION_PATH = "/api/chat/new";
 
@@ -25,6 +28,10 @@ export const TOOL_CALLS_PATH_SEGMENT = "tool-calls";
 
 // Path segment, after the tool call id, that answers the pending call.
 export const TOOL_RESPONSE_PATH_SEGMENT = "response";
+
+// Status value the backend gives a conversation frozen on a tool call; the same
+// spelling as its `CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE`.
+export const CONVERSATION_STATUS_AWAITING_TOOL_RESPONSE = "awaiting_tool_response";
 
 // Status code the backend answers for a conversation that is unknown or foreign.
 export const NOT_FOUND_STATUS = 404;

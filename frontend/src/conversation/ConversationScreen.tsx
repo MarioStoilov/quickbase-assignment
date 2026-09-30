@@ -1,29 +1,23 @@
 /**
- * The screen after login: header with the tenant and its actions, and the open
- * conversation, created or read back from the backend first.
+ * The chat screen: header with the way back to the list, and one conversation read
+ * back from the backend before it is shown.
  */
 
 import type { UIMessage } from "ai";
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 
-import { ApiError, createConversation, readConversation } from "../api/client";
+import { ApiError, readConversation } from "../api/client";
 import { NOT_FOUND_STATUS } from "../constants/api";
-import {
-  ACTING_AS_PREFIX,
-  APPLICATION_TITLE,
-  LOADING_CONVERSATION_TEXT,
-  LOGOUT_BUTTON_LABEL,
-  NEW_CONVERSATION_BUTTON_LABEL,
-} from "../constants/ui";
+import { CONVERSATIONS_BUTTON_LABEL, LOADING_CONVERSATION_TEXT } from "../constants/ui";
+import { ScreenHeader } from "../layout/ScreenHeader";
 import { Conversation } from "./Conversation";
 import { uiMessagesFromConversation } from "./storedMessages";
 
 /** The session values and actions the screen works with. */
 export interface ConversationScreenProps {
   tenantId: string;
-  conversationId: string | null;
-  onOpenConversation: (conversationId: string) => void;
+  conversationId: string;
   onCloseConversation: () => void;
   onLogout: () => void;
 }
@@ -34,69 +28,56 @@ interface LoadedConversation {
   initialMessages: UIMessage[];
 }
 
-/** A failure to create or read a conversation, kept with the id it happened for. */
+/** A failure to read a conversation, kept with the id it happened for. */
 interface LoadFailure {
-  conversationId: string | null;
+  conversationId: string;
   message: string;
 }
 
 /**
  * Render the header and the conversation.
  *
- * Without a conversation id, one is created and stored in the session. With one, it
- * is read back; a 404, which the backend answers for an unknown or foreign id, drops
- * the stale id so a fresh conversation is created on the next pass. Loaded and failed
- * states remember the id they belong to, so a change of conversation shows the
- * loading text without any state being reset.
+ * The conversation is read back first so the chat starts with its history and, when
+ * it is frozen, the dialog. A 404, which the backend answers for an unknown or
+ * foreign id, closes the conversation so the person lands on the list. Loaded and
+ * failed states remember the id they belong to, so a change of conversation shows
+ * the loading text without any state being reset.
  *
  * @param props - the session values and the actions that change them.
  * @returns The screen.
  */
 export function ConversationScreen(props: ConversationScreenProps): ReactElement {
-  const { tenantId, conversationId, onOpenConversation, onCloseConversation, onLogout } = props;
+  const { tenantId, conversationId, onCloseConversation, onLogout } = props;
   const [loaded, setLoaded] = useState<LoadedConversation | null>(null);
   const [failure, setFailure] = useState<LoadFailure | null>(null);
 
   useEffect(() => {
     let isStale = false;
 
-    async function load(): Promise<void> {
-      const needsConversation = conversationId === null;
-      if (needsConversation) {
-        const created = await createConversation(tenantId);
-        if (!isStale) {
-          onOpenConversation(created.id);
-        }
-        return;
-      }
-
-      try {
-        const conversation = await readConversation(tenantId, conversationId);
+    readConversation(tenantId, conversationId)
+      .then((conversation) => {
         const initialMessages = uiMessagesFromConversation(conversation);
         if (!isStale) {
           setLoaded({ conversationId, initialMessages });
         }
-      } catch (error) {
+      })
+      .catch((error: unknown) => {
+        if (isStale) {
+          return;
+        }
         const isStaleId = error instanceof ApiError && error.status === NOT_FOUND_STATUS;
-        if (isStaleId && !isStale) {
+        if (isStaleId) {
           onCloseConversation();
           return;
         }
-        throw error;
-      }
-    }
-
-    load().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!isStale) {
+        const message = error instanceof Error ? error.message : String(error);
         setFailure({ conversationId, message });
-      }
-    });
+      });
 
     return (): void => {
       isStale = true;
     };
-  }, [tenantId, conversationId, onOpenConversation, onCloseConversation]);
+  }, [tenantId, conversationId, onCloseConversation]);
 
   const isLoaded = loaded !== null && loaded.conversationId === conversationId;
   const isFailed = failure !== null && failure.conversationId === conversationId;
@@ -117,22 +98,15 @@ export function ConversationScreen(props: ConversationScreenProps): ReactElement
     body = <p className="screen-loading">{LOADING_CONVERSATION_TEXT}</p>;
   }
 
+  const conversationsButton = (
+    <button type="button" onClick={onCloseConversation}>
+      {CONVERSATIONS_BUTTON_LABEL}
+    </button>
+  );
+
   return (
     <div className="screen">
-      <header className="screen-header">
-        <h1>{APPLICATION_TITLE}</h1>
-        <p className="screen-tenant">
-          {ACTING_AS_PREFIX} <strong>{tenantId}</strong>
-        </p>
-        <div className="screen-actions">
-          <button type="button" onClick={onCloseConversation}>
-            {NEW_CONVERSATION_BUTTON_LABEL}
-          </button>
-          <button type="button" onClick={onLogout}>
-            {LOGOUT_BUTTON_LABEL}
-          </button>
-        </div>
-      </header>
+      <ScreenHeader tenantId={tenantId} actions={conversationsButton} onLogout={onLogout} />
       {body}
     </div>
   );

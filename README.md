@@ -171,7 +171,10 @@ A chat is a *tenant conversation*: a row bound to one tenant, plus its messages 
 order. Its lifecycle is three calls. `POST /api/chat/new` creates an empty conversation
 for the calling tenant and returns a server-generated id. `POST /api/chat/{id}` appends
 one user message and streams the reply. `GET /api/chat/{id}` returns the conversation
-with its stored messages. The client sends only the newest message with each post; the
+with its stored messages. `GET /api/chat` lists the caller's conversations, newest
+first, each with its status and a preview made of the first user message cut to a
+bounded length; the list is not paginated, which is fine at this scale and would be
+the first thing to add for a real tenant. The client sends only the newest message with each post; the
 server holds the whole history and resends it to the model every turn. Holding it
 server-side means the client cannot rewrite the past, for example by inserting a
 fabricated tool result or a message claiming an approval was granted; that matters for
@@ -245,9 +248,10 @@ TypeScript, with the Vercel AI SDK for the stream protocol and assistant-ui prim
 for the chat surface. It has its own server and port and forwards `/api` calls to the
 backend, so the backend carries no static files, no CORS configuration and no knowledge
 of which client is talking to it; another frontend can be run against the same API in
-the same way. It calls `GET /api/tenants` for its login screen, `POST /api/chat/new`
-for a conversation, the two streaming routes for messages and tool responses, and
-`GET /api/chat/{id}` to rebuild the chat after a reload, pending call included.
+the same way. It calls `GET /api/tenants` for its login screen, `GET /api/chat` for the
+list of the tenant's conversations shown after login, `POST /api/chat/new` for a new
+one, the two streaming routes for messages and tool responses, and `GET /api/chat/{id}`
+to open a conversation from the list or after a reload, pending call included.
 
 The frontend registers no tool. Every tool call in the stream is shown by one generic
 trace box (collapsed to the name and state by default; expanded, the arguments and
@@ -345,6 +349,7 @@ Endpoints:
 | GET    | `/api/health`    | no   | liveness and version                      |
 | GET    | `/api/tenants`   | no   | the seeded tenants, for the login screen  |
 | GET    | `/api/tickets`   | yes  | the caller's tickets                      |
+| GET    | `/api/chat`      | yes | the caller's conversations, newest first, with a preview |
 | POST   | `/api/chat/new`  | yes | create a conversation, returns its id     |
 | GET    | `/api/chat/{id}` | yes | the conversation with its stored messages |
 | POST   | `/api/chat/{id}` | yes | one user message in, one streamed reply; 409 while frozen |
@@ -355,5 +360,6 @@ Endpoints:
 - Timestamps are not uniformly timezone-marked. A row returned straight after it is
   created carries a `Z` suffix, while the same row read back from SQLite does not,
   because SQLite stores no timezone and SQLAlchemy returns a naive value. Every stored
-  time is UTC either way. This is left as is for the purposes of the task; a real
-  service would normalise on the way out of the database.
+  time is UTC either way. One visible effect: the frontend's conversation list shows
+  the unmarked start times as if they were local. This is left as is for the purposes
+  of the task; a real service would normalise on the way out of the database.

@@ -52,14 +52,18 @@ Everything the frontend knows about the API is in `src/api/` and `src/constants/
 
 - `GET /api/tenants` fills the login screen. Picking a tenant stores its id in
   `sessionStorage`; from then on every request carries it in the `X-Tenant-ID` header.
-- `POST /api/chat/new` is called once per conversation. The id is stored in
-  `sessionStorage`, so a reload reopens the same conversation and a new tab starts at
-  the login screen. "New conversation" forgets the id; "Log out" forgets both.
-- `GET /api/chat/{id}` is read on every load. Its stored messages are turned into the
-  AI SDK message shape (`storedMessages.ts`), and when the conversation is frozen the
-  pending call gets the same response-required part the stream would have carried, so
-  the dialog reopens. A 404 (unknown or foreign id) drops the stored id and a fresh
-  conversation is created.
+- `GET /api/chat` fills the list shown after login: the tenant's conversations,
+  newest first, each with its start time, a preview of the first message and a mark
+  when it waits for an answer to a tool call. Clicking one opens it; "New
+  conversation" at the top creates one through `POST /api/chat/new` and opens it.
+- The open conversation's id is stored in `sessionStorage`, so a reload reopens the
+  same chat and a new tab starts at the login screen. "Conversations" in the chat
+  header forgets the id and returns to the list; "Log out" forgets both.
+- `GET /api/chat/{id}` is read whenever a conversation is opened. Its stored messages
+  are turned into the AI SDK message shape (`storedMessages.ts`), and when the
+  conversation is frozen the pending call gets the same response-required part the
+  stream would have carried, so the dialog reopens. A 404 (unknown or foreign id)
+  drops the stored id and returns to the list.
 - `POST /api/chat/{id}` and `POST /api/chat/{id}/tool-calls/{call_id}/response` are
   the two streaming routes. One transport (`ConversationTransport.ts`) serves both: a
   new message posts only that message; an answer to a pending call posts only the
@@ -93,21 +97,24 @@ Adding a tool to the backend therefore needs no frontend change.
 ```
 src/
 ├── main.tsx                 mounts the application
-├── App.tsx                  login screen or conversation screen, from the session
+├── App.tsx                  login, conversation list or chat, from the session
 ├── styles.css               all styling, hand-written, no CSS framework
 ├── api/
-│   ├── client.ts            fetch calls answered with one JSON body: tenants, create, read
+│   ├── client.ts            fetch calls answered with one JSON body: tenants, list, create, read
 │   └── types.ts             the backend's response shapes
 ├── constants/
-│   ├── api.ts               paths, the tenant header, sessionStorage keys
+│   ├── api.ts               paths, the tenant header, statuses, sessionStorage keys
 │   ├── stream.ts            part types and states read from the stream
 │   └── ui.ts                every text the person sees that the model did not write
 ├── session/
 │   └── useSession.ts        tenant id and conversation id in sessionStorage
+├── layout/
+│   └── ScreenHeader.tsx     title, tenant, the screen's buttons and "Log out"
 ├── login/
 │   └── TenantLogin.tsx      one button per tenant
 ├── conversation/
-│   ├── ConversationScreen.tsx  header, create-or-read of the conversation, then the chat
+│   ├── ConversationList.tsx the tenant's conversations and "New conversation"
+│   ├── ConversationScreen.tsx  header with the way back, read of the conversation, then the chat
 │   ├── Conversation.tsx     the chat: messages, composer, dialog; wraps assistant-ui's
 │   │                        thread-named primitives once
 │   ├── ConversationTransport.ts  the AI SDK transport: routes each request to one of

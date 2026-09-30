@@ -30,6 +30,24 @@ export const SEND_BUTTON_LABEL = "Send";
 // Label of the button that starts a fresh conversation for the same tenant.
 export const NEW_CONVERSATION_BUTTON_LABEL = "New conversation";
 
+// Label of the button in the chat header that returns to the list of conversations.
+export const CONVERSATIONS_BUTTON_LABEL = "Conversations";
+
+// Heading of the list of the tenant's conversations.
+export const CONVERSATIONS_HEADING = "Your conversations";
+
+// Shown while the list of conversations is being fetched.
+export const LOADING_CONVERSATIONS_TEXT = "Loading conversations…";
+
+// Shown in place of the list when the tenant has no conversation yet.
+export const NO_CONVERSATIONS_TEXT = "No conversations yet.";
+
+// Shown as the preview of a conversation nobody has written to.
+export const EMPTY_CONVERSATION_PREVIEW = "Empty conversation";
+
+// Mark on a listed conversation that is frozen on a tool call.
+export const CONVERSATION_WAITING_MARK = "Waiting for your answer";
+
 // Label of the button that forgets the tenant and returns to the login screen.
 export const LOGOUT_BUTTON_LABEL = "Log out";
 

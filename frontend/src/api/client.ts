@@ -7,6 +7,7 @@
 
 import {
   CONVERSATION_PATH_PREFIX,
+  CONVERSATIONS_PATH,
   JSON_CONTENT_TYPE,
   NEW_CONVERSATION_PATH,
   TENANT_HEADER_NAME,
@@ -14,7 +15,12 @@ import {
   TOOL_CALLS_PATH_SEGMENT,
   TOOL_RESPONSE_PATH_SEGMENT,
 } from "../constants/api";
-import type { ConversationCreated, ConversationResponse, TenantSummary } from "./types";
+import type {
+  ConversationCreated,
+  ConversationResponse,
+  ConversationSummary,
+  TenantSummary,
+} from "./types";
 
 /** A response the backend answered with an error status. */
 export class ApiError extends Error {
@@ -136,6 +142,26 @@ export async function listTenants(): Promise<TenantSummary[]> {
   const tenants = await jsonBodyOf<TenantSummary[]>(response);
 
   return tenants;
+}
+
+/**
+ * List the tenant's conversations, newest first.
+ *
+ * @param tenantId - the tenant the person acts as.
+ * @returns One summary per conversation; empty when there are none.
+ * @throws ApiError when the backend answers with an error status.
+ */
+export async function listConversations(tenantId: string): Promise<ConversationSummary[]> {
+  const headers = tenantHeaders(tenantId);
+  const response = await fetch(CONVERSATIONS_PATH, { headers });
+  const isOk = response.ok;
+  if (!isOk) {
+    throw await apiErrorFrom(response);
+  }
+
+  const conversations = await jsonBodyOf<ConversationSummary[]>(response);
+
+  return conversations;
 }
 
 /**

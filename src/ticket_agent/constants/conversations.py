@@ -14,6 +14,13 @@ MESSAGE_ROLE_TOOL = "tool"
 # without an unbounded column.
 CONVERSATION_ID_MAX_LENGTH = 64
 
+# Longest preview, in characters, a conversation carries in the tenant's list. The
+# preview is the first user message; longer text is cut here and marked.
+CONVERSATION_PREVIEW_MAX_LENGTH = 120
+
+# Appended to a preview that was cut at the length above.
+CONVERSATION_PREVIEW_ELLIPSIS = "…"
+
 # Error text answered for a conversation id that does not exist or belongs to another
 # tenant, one wording for both so the response does not confirm the id exists.
 CONVERSATION_NOT_FOUND_DETAIL = "conversation not found"

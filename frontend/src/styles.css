@@ -115,6 +115,59 @@ code {
   font-size: 1.05rem;
 }
 
+/* Conversation list */
+
+.conversations-heading {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--colour-muted);
+}
+
+.conversation-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.conversation-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+}
+
+.conversation-row:hover {
+  border-color: var(--colour-accent);
+}
+
+.conversation-row-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-row-preview-empty {
+  font-style: italic;
+  color: var(--colour-muted);
+}
+
+.conversation-row-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 0.85rem;
+  color: var(--colour-muted);
+}
+
+.conversation-row-waiting {
+  color: var(--colour-accent);
+}
+
 /* Conversation */
 
 .conversation {

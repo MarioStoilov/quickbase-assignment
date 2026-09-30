@@ -8,6 +8,14 @@ export interface TenantSummary {
   display_name: string;
 }
 
+/** One conversation as listed by `GET /api/chat`. */
+export interface ConversationSummary {
+  id: string;
+  created_at: string;
+  status: string;
+  preview: string;
+}
+
 /** What `POST /api/chat/new` returns. */
 export interface ConversationCreated {
   id: string;
