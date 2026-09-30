@@ -87,11 +87,17 @@ activating it by hand; every frontend target runs npm inside `frontend/`.
 ### Environment and code quality
 
 ```bash
-make install                                    # uv sync, then npm ci in frontend/
+make install                                    # uv sync, npm ci in frontend/, and the git pre-commit hook
 make lint                                       # ruff format --check and ruff check; eslint, prettier and tsc
 make format                                     # ruff format and auto-fixable lint rules; prettier and eslint --fix
 make test                                       # backend test suite with coverage; no network, no API key
 ```
+
+`make install` points git's `core.hooksPath` at `.githooks/`, whose `pre-commit` hook
+runs the backend unit test layer before every commit and aborts the commit when a test
+fails. Only the unit layer runs there, to keep commits fast; `make test` runs
+everything with the coverage threshold. `git commit --no-verify` skips the hook
+deliberately.
 
 ### Database
 

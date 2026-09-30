@@ -2,11 +2,13 @@
 # every frontend target runs npm inside `frontend/`. The two are separate services.
 .PHONY: install lint format test init reset-db seed db-dump llm-probe run run-all frontend frontend-dev frontend-build
 
-# Create the backend virtual environment with the locked dependencies, and install the
-# frontend's locked dependencies.
+# Create the backend virtual environment with the locked dependencies, install the
+# frontend's locked dependencies, and point git at the repository's hooks so the unit
+# tests run before every commit.
 install:
 	uv sync
 	cd frontend && npm ci
+	git config core.hooksPath .githooks
 
 # Fail if formatting or lint rules are violated in either service; run before
 # reporting a change done.

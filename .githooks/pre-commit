@@ -1,0 +1,15 @@
+#!/bin/sh
+# Git pre-commit hook: run the backend unit test layer before every commit.
+#
+# Installed by `make install`, which points `core.hooksPath` at this directory. Only the
+# unit layer runs here so that a commit stays fast; the integration and adversarial
+# layers and the coverage threshold run through `make test`. A failing test aborts the
+# commit; `git commit --no-verify` skips the hook deliberately.
+
+set -e
+
+repository_root=$(git rev-parse --show-toplevel)
+cd "$repository_root"
+
+echo "pre-commit: running the backend unit tests"
+uv run pytest tests/unit -q -p no:cacheprovider
